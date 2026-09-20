@@ -57,16 +57,19 @@ class WarpOuterBackend:
 
     def __init__(self, plant, inner_study, inner_model, scenarios, seed=0,
                  reward_shape="l2", failure=-1040.0, effort_scale=1.0,
-                 memory_divisor=0.5, memory_cost=0.5):
+                 memory_divisor=0.5, memory_cost=0.5, smooth_alpha=1.0,
+                 quad_weight=100.0):
         self.plant = copy.deepcopy(plant)
         self.study = copy.deepcopy(inner_study)
         self.model = inner_model
         self.scenarios = copy.deepcopy(scenarios)
         self.rng = np.random.default_rng(seed)
-        assert reward_shape in ("l2", "l1")
+        assert reward_shape in ("l2", "l1", "qeff")
         self.shape, self.failure = reward_shape, float(failure)
         self.effort = float(effort_scale)
         self.mem_div, self.mem_cost = float(memory_divisor), float(memory_cost)
+        self.alpha = float(smooth_alpha)
+        self.qw = float(quad_weight)
         assert plant["tau_s"] == 1e-4
         contract = inner_study["contract"]
         self.tau_i, self.tau_o, self.hold = 1e-4, 1e-3, 10
@@ -87,6 +90,7 @@ class WarpOuterBackend:
             e.reset()
         self.z = np.zeros(n)
         self.prev_cmd = np.zeros(n)
+        self.cmd_f = np.zeros(n)
         self.phys = np.zeros(n, dtype=int)
         dur = round(self.case["duration_s"] / self.tau_i)
         self.dur = np.full(n, dur)
@@ -106,6 +110,7 @@ class WarpOuterBackend:
         self.enc[j] = CurrentEncoder(self.contract, "direct")
         self.enc[j].reset()
         self.z[j], self.prev_cmd[j] = 0.0, 0.0
+        self.cmd_f[j] = 0.0
         self.phys[j] = 0
         self.done[j] = False
         wp.launch(fs.reset_row_kernel, dim=1,
@@ -134,6 +139,10 @@ class WarpOuterBackend:
         """actions: (N,1) in [-1,1]. Returns obs, rewards, term, trunc, infos."""
         a = np.asarray(actions, dtype=float).reshape(self.n, 1)
         cmd = 1.5 * np.clip(a[:, 0], -1, 1)
+        # Smoothing (thesis Sec 4.2): plant-facing reference is low-passed;
+        # delta penalty and previous_command stay on the raw actor output.
+        self.cmd_f = self.alpha * cmd + (1.0 - self.alpha) * self.cmd_f
+        cmdf = self.cmd_f
         obs0, ref0 = self._obs()
         om_pre = self.om.copy()
         z0 = self.z.copy()
@@ -155,7 +164,7 @@ class WarpOuterBackend:
             obatch = np.stack([e.encode(
                 {"i_sd": float(d), "i_sq": float(q), "omega": float(o), "epsilon": float(e_)},
                 np.array([0.0, float(c)]) * min(1.0, self.cur_lim / max(abs(float(c)), 1e-30)))
-                for e, d, q, o, e_, c in zip(self.enc, isd, isq, self.om, self.eps, cmd)])
+                for e, d, q, o, e_, c in zip(self.enc, isd, isq, self.om, self.eps, cmdf)])
             with torch.no_grad():
                 raw = self.model.actor.forward(torch.as_tensor(obatch, device="cuda")).cpu().numpy()
             volt = np.zeros((self.n, 2))
@@ -183,6 +192,11 @@ class WarpOuterBackend:
             if self.shape == "l1":
                 en = np.clip((ref0[live] - self.om[live]) / 25, -1, 1)
                 l2speed = l2speed + (4.0 * (np.abs(en) - en ** 2))
+            elif self.shape == "qeff":
+                # Quadratic tracking (thesis Eq.20 style): qw matched so cost
+                # at en=0.04 equals the L1 cost there; smooth gradient at zero.
+                en = np.clip((ref0[live] - self.om[live]) / 25, -1, 1)
+                l2speed = self.qw * en ** 2
             rewards[live] += -(l2speed
                 + 0.5 * np.clip(np.hypot(isd2[live], isq2[live]) / 4, 0, 1) ** 2
                 + self.effort * 0.1 * np.clip(delta[live], 0, 1) ** 2 + self.mem_cost * z0[live] ** 2
