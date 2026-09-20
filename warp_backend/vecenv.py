@@ -8,12 +8,14 @@ from warp_backend.backend import WarpOuterBackend
 
 class WarpOuterVecEnv(VecEnv):
     def __init__(self, plant, inner_study, inner_model, case, n_envs=8, seed=0,
-                 reward_shape="l2", failure=-1040.0, effort_scale=1.0, cases=None):
+                 reward_shape="l2", failure=-1040.0, effort_scale=1.0, cases=None,
+                 memory_divisor=0.5, memory_cost=0.5):
         self.cases = [copy.deepcopy(c) for c in (cases or [case])]
         self.rng = np.random.default_rng(seed)
         self.be = WarpOuterBackend(plant, inner_study, inner_model, self.cases, seed=seed,
                                    reward_shape=reward_shape, failure=failure,
-                                   effort_scale=effort_scale)
+                                   effort_scale=effort_scale, memory_divisor=memory_divisor,
+                                   memory_cost=memory_cost)
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
         obs, _ = self.be.reset(n_envs, case=self.case, seed=seed)
         super().__init__(

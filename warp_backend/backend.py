@@ -56,7 +56,8 @@ class WarpOuterBackend:
     """Batched outer env. States: omega, i_abc, eps per env (float64)."""
 
     def __init__(self, plant, inner_study, inner_model, scenarios, seed=0,
-                 reward_shape="l2", failure=-1040.0, effort_scale=1.0):
+                 reward_shape="l2", failure=-1040.0, effort_scale=1.0,
+                 memory_divisor=0.5, memory_cost=0.5):
         self.plant = copy.deepcopy(plant)
         self.study = copy.deepcopy(inner_study)
         self.model = inner_model
@@ -65,6 +66,7 @@ class WarpOuterBackend:
         assert reward_shape in ("l2", "l1")
         self.shape, self.failure = reward_shape, float(failure)
         self.effort = float(effort_scale)
+        self.mem_div, self.mem_cost = float(memory_divisor), float(memory_cost)
         assert plant["tau_s"] == 1e-4
         contract = inner_study["contract"]
         self.tau_i, self.tau_o, self.hold = 1e-4, 1e-3, 10
@@ -183,13 +185,13 @@ class WarpOuterBackend:
                 l2speed = l2speed + (4.0 * (np.abs(en) - en ** 2))
             rewards[live] += -(l2speed
                 + 0.5 * np.clip(np.hypot(isd2[live], isq2[live]) / 4, 0, 1) ** 2
-                + self.effort * 0.1 * np.clip(delta[live], 0, 1) ** 2 + 0.5 * z0[live] ** 2
+                + self.effort * 0.1 * np.clip(delta[live], 0, 1) ** 2 + self.mem_cost * z0[live] ** 2
                 + self.effort * 0.1 * np.clip(np.abs(tq[live] - tprev[live]) / 0.1, 0, 1) ** 2)
             tprev = tq.copy()
         cnt = np.maximum(counts, 1)
         rewards = np.where(counts > 0, rewards / cnt, 0.0)
         rewards[term] = self.failure
-        self.z = np.clip(z0 + counts * self.tau_i * np.clip((ref0 - om_pre) / 25, -1, 1) / 0.5, -1, 1)
+        self.z = np.clip(z0 + counts * self.tau_i * np.clip((ref0 - om_pre) / 25, -1, 1) / self.mem_div, -1, 1)
         self.prev_cmd = cmd
         fin = (~term) & (self.phys >= self.dur)
         trunc[fin] = True
