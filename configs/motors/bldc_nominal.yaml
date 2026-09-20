@@ -1,0 +1,10 @@
+# Nominal BLDC sim config — ASSUMED, not measured motor specs.
+tau_s: 0.0001
+supply_v: 44.4
+pole_pairs: 21
+r_ohm: 0.085
+l_h: 0.00005
+current_reference_limit_a: 1.5
+phase_trip_a: 4.0
+outer_hz: 1000
+inner_hz: 10000

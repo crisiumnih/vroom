@@ -1,0 +1,4 @@
+[submodule "third_party/gym-electric-motor"]
+	path = third_party/gym-electric-motor
+	url = https://github.com/crisiumnih/gym-electric-motor.git
+	branch = tidy/bldc-core
