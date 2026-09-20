@@ -1,0 +1,59 @@
+"""SB3 VecEnv around WarpOuterBackend (single shared case, N envs)."""
+import numpy as np
+from gymnasium.spaces import Box
+from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvStepReturn, VecEnvObs
+from warp_backend.backend import WarpOuterBackend
+
+
+class WarpOuterVecEnv(VecEnv):
+    def __init__(self, plant, inner_study, inner_model, case, n_envs=8, seed=0,
+                 reward_shape="l2", failure=-1040.0, effort_scale=1.0):
+        self.be = WarpOuterBackend(plant, inner_study, inner_model, [case], seed=seed,
+                                   reward_shape=reward_shape, failure=failure,
+                                   effort_scale=effort_scale)
+        self.case = case
+        obs, _ = self.be.reset(n_envs, case=case, seed=seed)
+        super().__init__(
+            num_envs=n_envs,
+            observation_space=Box(-1, 1, shape=(7,), dtype=np.float32),
+            action_space=Box(-1, 1, shape=(1,), dtype=np.float32),
+        )
+        self._actions = None
+
+    def reset(self) -> VecEnvObs:
+        obs, _ = self.be.reset(self.num_envs, case=self.case)
+        return obs.astype(np.float32)
+
+    def step_async(self, actions: np.ndarray) -> None:
+        self._actions = np.asarray(actions, dtype=float).reshape(self.num_envs, 1)
+
+    def step_wait(self) -> VecEnvStepReturn:
+        obs, rews, terms, truncs, infos = self.be.step(self._actions)
+        dones = terms | truncs
+        obs = obs.astype(np.float32)
+        for j in np.where(dones)[0]:
+            infos[j] = dict(infos[j], terminal_observation=obs[j].copy(),
+                            TimeLimit_truncated=bool(truncs[j] and not terms[j]))
+            obs[j] = self.be.reset_env(int(j))
+        return obs, rews.astype(float), dones, infos
+
+    def seed(self, seed=None):
+        return [seed]
+
+    def close(self):
+        pass
+
+    def get_attr(self, attr_name, indices=None):
+        raise AttributeError(attr_name)
+
+    def set_attr(self, attr_name, value, indices=None):
+        raise AttributeError(attr_name)
+
+    def env_method(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def env_is_wrapped(self, *args, **kwargs):
+        return [False] * self.num_envs
+
+    def get_images(self):
+        raise NotImplementedError
