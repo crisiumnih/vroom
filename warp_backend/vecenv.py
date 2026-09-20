@@ -1,4 +1,5 @@
-"""SB3 VecEnv around WarpOuterBackend (single shared case, N envs)."""
+"""SB3 VecEnv around WarpOuterBackend (N envs, case list sampled per reset)."""
+import copy
 import numpy as np
 from gymnasium.spaces import Box
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvStepReturn, VecEnvObs
@@ -7,12 +8,14 @@ from warp_backend.backend import WarpOuterBackend
 
 class WarpOuterVecEnv(VecEnv):
     def __init__(self, plant, inner_study, inner_model, case, n_envs=8, seed=0,
-                 reward_shape="l2", failure=-1040.0, effort_scale=1.0):
-        self.be = WarpOuterBackend(plant, inner_study, inner_model, [case], seed=seed,
+                 reward_shape="l2", failure=-1040.0, effort_scale=1.0, cases=None):
+        self.cases = [copy.deepcopy(c) for c in (cases or [case])]
+        self.rng = np.random.default_rng(seed)
+        self.be = WarpOuterBackend(plant, inner_study, inner_model, self.cases, seed=seed,
                                    reward_shape=reward_shape, failure=failure,
                                    effort_scale=effort_scale)
-        self.case = case
-        obs, _ = self.be.reset(n_envs, case=case, seed=seed)
+        self.case = self.cases[int(self.rng.integers(len(self.cases)))]
+        obs, _ = self.be.reset(n_envs, case=self.case, seed=seed)
         super().__init__(
             num_envs=n_envs,
             observation_space=Box(-1, 1, shape=(7,), dtype=np.float32),
@@ -21,6 +24,7 @@ class WarpOuterVecEnv(VecEnv):
         self._actions = None
 
     def reset(self) -> VecEnvObs:
+        self.case = self.cases[int(self.rng.integers(len(self.cases)))]
         obs, _ = self.be.reset(self.num_envs, case=self.case)
         return obs.astype(np.float32)
 
