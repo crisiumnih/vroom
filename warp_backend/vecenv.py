@@ -31,7 +31,8 @@ class WarpOuterVecEnv(VecEnv):
         else:
             raise ValueError(f"Unknown rollout backend {backend!r}")
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
-        obs, _ = self.be.reset(n_envs, case=self.case, seed=seed)
+        out = self.be.reset(n_envs, case=self.case, seed=seed)
+        obs = out[0] if isinstance(out, tuple) else out
         super().__init__(
             num_envs=n_envs,
             observation_space=Box(-1, 1, shape=(7,), dtype=np.float32),
@@ -41,7 +42,8 @@ class WarpOuterVecEnv(VecEnv):
 
     def reset(self) -> VecEnvObs:
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
-        obs, _ = self.be.reset(self.num_envs, case=self.case)
+        out = self.be.reset(self.num_envs, case=self.case)
+        obs = out[0] if isinstance(out, tuple) else out
         return obs.astype(np.float32)
 
     def step_async(self, actions: np.ndarray) -> None:

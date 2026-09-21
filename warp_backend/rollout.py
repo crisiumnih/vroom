@@ -113,14 +113,35 @@ class FastOuterBackend(WarpOuterBackend):
         self.n = n
         if seed is not None:
             self.rng = np.random.default_rng(seed)
-        self.case = copy.deepcopy(case or self.scenarios[int(self.rng.integers(len(self.scenarios)))])
-        dur = round(self.case["duration_s"] / self.tau_i)
-        self.dur = np.full(n, dur)
+        if case is None:
+            # Independent scenario per lane (training coverage).
+            self.case_ids = self.rng.integers(len(self.scenarios), size=n)
+        else:
+            self.case_ids = np.full(n, -1)
+            self.case = copy.deepcopy(case)
         dev = torch.device("cuda:0")
-        ref_col, dist_col = build_tables(self.case, self.tau_i, dur)
-        T = dur + 1
-        ref_tab = np.tile(ref_col[:, None], (1, n))
-        dist_tab = np.tile(dist_col[:, None], (1, n))
+        durs, cols_r, cols_d, names, lane_cases = [], [], [], [], []
+        for j in range(n):
+            cj = self.case if self.case_ids[j] == -1 else self.scenarios[int(self.case_ids[j])]
+            dj = round(cj["duration_s"] / self.tau_i)
+            rj, djc = build_tables(cj, self.tau_i, dj)
+            durs.append(dj)
+            cols_r.append(rj)
+            cols_d.append(djc)
+            names.append(cj.get("name", f"case{j}"))
+            lane_cases.append(copy.deepcopy(cj))
+        self.case_names = names
+        self.lane_cases = lane_cases
+        if self.case_ids[0] != -1:
+            self.case = copy.deepcopy(lane_cases[0])
+        # Table height covers every configured scenario so auto-resets fit.
+        T = max(round(c["duration_s"] / self.tau_i) for c in self.scenarios)
+        ref_tab = np.zeros((T + 1, n))
+        dist_tab = np.zeros((T + 1, n))
+        for j in range(n):
+            ref_tab[:durs[j] + 1, j] = cols_r[j]
+            dist_tab[:durs[j] + 1, j] = cols_d[j]
+        self.dur = np.asarray(durs)
         d = {}
         d["plant"] = torch.zeros((n, 5), dtype=torch.float64, device=dev)
         d["hist"] = torch.zeros((n, self.H, 2), dtype=torch.float32, device=dev)
@@ -160,6 +181,23 @@ class FastOuterBackend(WarpOuterBackend):
 
     def reset_env(self, j, seed=None):
         d = self._dev
+        # Independent resample per lane (training coverage, not shared case).
+        if seed is not None:
+            lane_rng = np.random.default_rng(seed)
+            idx = int(lane_rng.integers(len(self.scenarios)))
+        else:
+            idx = int(self.rng.integers(len(self.scenarios)))
+        cj = copy.deepcopy(self.scenarios[idx])
+        dj = round(cj["duration_s"] / self.tau_i)
+        assert dj + 1 <= d["ref_tab"].shape[0], "scenario longer than table"
+        rj, djc = build_tables(cj, self.tau_i, dj)
+        d["ref_tab"][:dj + 1, j] = torch.as_tensor(rj, dtype=torch.float64, device=d["ref_tab"].device)
+        d["dist_tab"][:dj + 1, j] = torch.as_tensor(djc, dtype=torch.float64, device=d["dist_tab"].device)
+        d["dur"][j] = dj
+        self.dur[j] = dj
+        self.case_ids[j] = idx
+        self.case_names[j] = cj.get("name", f"case{j}")
+        self.lane_cases[j] = cj
         d["plant"][j].zero_()
         d["hist"][j].zero_()
         d["prev"][j].zero_()
@@ -176,7 +214,8 @@ class FastOuterBackend(WarpOuterBackend):
         return self._single_host_obs(j)
 
     def _single_host_obs(self, j):
-        ref = float(schedule_value(self.case["reference"], 0, self.tau_i))
+        cj = self.lane_cases[j] if hasattr(self, 'lane_cases') else self.case
+        ref = float(schedule_value(cj["reference"], 0, self.tau_i))
         return np.clip(np.array([0.0, ref / 25, ref / 25, 0.0, 0.0, 0.0, 0.0],
                                 dtype=np.float32), -1, 1)
 
@@ -278,8 +317,9 @@ class FastOuterBackend(WarpOuterBackend):
         self.phys += delta_h
         self.done = term_h | trunc_h
         infos = [{"failure": "phase_current_trip" if int(f) == 1 else None,
-                  "physics_steps": int(p), "inner_steps": int(k)}
-                 for f, p, k in zip(fail_h, self.phys, delta_h)]
+                  "physics_steps": int(p), "inner_steps": int(k),
+                  "scenario": self.case_names[j]}
+                 for j, (f, p, k) in enumerate(zip(fail_h, self.phys, delta_h))]
         return obs, rew_h, term_h, trunc_h, infos
 
     def _torque_of(self, plant):
