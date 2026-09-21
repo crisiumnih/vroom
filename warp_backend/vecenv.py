@@ -53,7 +53,7 @@ class WarpOuterVecEnv(VecEnv):
         return obs.astype(np.float32)
 
     def step_async(self, actions: np.ndarray) -> None:
-        self._actions = np.asarray(actions, dtype=float).reshape(self.num_envs, 1)
+        self._actions = np.asarray(actions, dtype=float).reshape(self.num_envs, -1)
 
     def step_wait(self) -> VecEnvStepReturn:
         obs, rews, terms, truncs, infos = self.be.step(self._actions)

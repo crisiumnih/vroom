@@ -248,7 +248,7 @@ class FastOuterBackend(WarpOuterBackend):
 
     def _read_obs(self):
         with torch.no_grad():
-            o = self._assemble_obs()
+            o = self._assemble_iasa_obs() if self.control == 'iasa' else self._assemble_obs()
         wp.synchronize()
         return np.clip(o.cpu().numpy(), -1, 1)
 
