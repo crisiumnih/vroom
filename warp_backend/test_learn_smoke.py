@@ -52,4 +52,5 @@ def test_ddpg_learns_on_warp_vecenv():
         act = model.actor.forward(torch.as_tensor(obs, device="cuda"))
     assert torch.isfinite(act).all()
     print(f"smoke: 800 outer steps x4 envs in {dt:.1f}s "
-          f"({dt / 800 * 1000 / 4:.2f} ms/env-step)")
+          # SB3 num_timesteps already counts all envs: per-transition time is dt/800.
+          f"({dt / 800 * 1000:.2f} ms/transition)")

@@ -174,3 +174,59 @@ def reset_row_kernel(states: wp.array(dtype=wp.float64, ndim=2), row: wp.int32):
     states[row, 2] = wp.float64(0.0)
     states[row, 3] = wp.float64(0.0)
     states[row, 4] = wp.float64(0.0)
+
+
+@wp.kernel
+def fullstep_masked(
+    states: wp.array(dtype=wp.float64, ndim=2),
+    actions: wp.array(dtype=wp.float64, ndim=2),
+    dists: wp.array(dtype=wp.float64),
+    live: wp.array(dtype=wp.int32),
+    dt: wp.float64,
+    out: wp.array(dtype=wp.float64, ndim=2),
+):
+    """One RK4 step like fullstep_once, but frozen lanes keep their state.
+
+    Lanes with live==0 still write their (unchanged) state to out, so the
+    caller can use out unconditionally; executed-step accounting stays host
+    side via the same mask.
+    """
+    tid = wp.tid()
+    ud = actions[tid, 0]
+    uq = actions[tid, 1]
+    dist = dists[tid]
+    if live[tid] != 0:
+        om = states[tid, 0]
+        ia = states[tid, 1]
+        ib = states[tid, 2]
+        ic = states[tid, 3]
+        eps = states[tid, 4]
+        h = dt
+        half = wp.float64(0.5)
+        sixth = wp.float64(1.0) / wp.float64(6.0)
+        two = wp.float64(2.0)
+        m1, a1, b1, c1, e1, _t1 = full_rhs(om, ia, ib, ic, eps, ud, uq, dist)
+        m2, a2, b2, c2, e2, _t2 = full_rhs(om + h * half * m1, ia + h * half * a1, ib + h * half * b1,
+                      ic + h * half * c1, eps + h * half * e1, ud, uq, dist)
+        m3, a3, b3, c3, e3, _t3 = full_rhs(om + h * half * m2, ia + h * half * a2, ib + h * half * b2,
+                      ic + h * half * c2, eps + h * half * e2, ud, uq, dist)
+        m4, a4, b4, c4, e4, _t4 = full_rhs(om + h * m3, ia + h * a3, ib + h * b3,
+                      ic + h * c3, eps + h * e3, ud, uq, dist)
+        om = om + h * (m1 + two * m2 + two * m3 + m4) * sixth
+        ia = ia + h * (a1 + two * a2 + two * a3 + a4) * sixth
+        ib = ib + h * (b1 + two * b2 + two * b3 + b4) * sixth
+        ic = ic + h * (c1 + two * c2 + two * c3 + c4) * sixth
+        eps = eps + h * (e1 + two * e2 + two * e3 + e4) * sixth
+        states[tid, 0] = om
+        states[tid, 1] = ia
+        states[tid, 2] = ib
+        states[tid, 3] = ic
+        states[tid, 4] = eps
+    out[tid, 0] = states[tid, 0]
+    out[tid, 1] = states[tid, 1]
+    out[tid, 2] = states[tid, 2]
+    out[tid, 3] = states[tid, 3]
+    out[tid, 4] = states[tid, 4]
+    _m5, _a5, _b5, _c5, _e5, tq = full_rhs(states[tid, 0], states[tid, 1], states[tid, 2],
+                                          states[tid, 3], states[tid, 4], ud, uq, dist)
+    out[tid, 5] = tq
