@@ -10,9 +10,11 @@ class WarpOuterVecEnv(VecEnv):
     def __init__(self, plant, inner_study, inner_model, case, n_envs=8, seed=0,
                  reward_shape="l2", failure=-1040.0, effort_scale=1.0, cases=None,
                  memory_divisor=0.5, memory_cost=0.5, smooth_alpha=1.0, quad_weight=100.0,
-                 backend="numpy"):
+                 backend="numpy", control='direct'):
         """backend="numpy" preserves the reference rollout (fyp runner default).
-        backend="device" uses the device-resident loop (same contract)."""
+        backend="device" uses the device-resident loop (same contract).
+        control='iasa' selects the 19-observation two-output v3 contract."""
+        self.control = control
         self.cases = [copy.deepcopy(c) for c in (cases or [case])]
         self.rng = np.random.default_rng(seed)
         if backend == "device":
@@ -21,8 +23,10 @@ class WarpOuterVecEnv(VecEnv):
                                        reward_shape=reward_shape, failure=failure,
                                        effort_scale=effort_scale, memory_divisor=memory_divisor,
                                        memory_cost=memory_cost, smooth_alpha=smooth_alpha,
-                                       quad_weight=quad_weight)
+                                       quad_weight=quad_weight, control=control)
         elif backend == "numpy":
+            if control != 'direct':
+                raise ValueError('numpy reference supports direct control only')
             self.be = WarpOuterBackend(plant, inner_study, inner_model, self.cases, seed=seed,
                                        reward_shape=reward_shape, failure=failure,
                                        effort_scale=effort_scale, memory_divisor=memory_divisor,
@@ -33,10 +37,12 @@ class WarpOuterVecEnv(VecEnv):
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
         out = self.be.reset(n_envs, case=self.case, seed=seed)
         obs = out[0] if isinstance(out, tuple) else out
+        if control == 'iasa':
+            assert obs.shape[1] == 19
         super().__init__(
             num_envs=n_envs,
-            observation_space=Box(-1, 1, shape=(7,), dtype=np.float32),
-            action_space=Box(-1, 1, shape=(1,), dtype=np.float32),
+            observation_space=Box(-1, 1, shape=(19 if control == 'iasa' else 7,), dtype=np.float32),
+            action_space=Box(-1, 1, shape=(2 if control == 'iasa' else 1,), dtype=np.float32),
         )
         self._actions = None
 

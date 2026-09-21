@@ -96,7 +96,12 @@ class FastOuterBackend(WarpOuterBackend):
     """Drop-in device path. API identical to WarpOuterBackend.step/reset."""
 
     def __init__(self, *args, **kwargs):
+        self.control = kwargs.pop('control', 'direct')
+        if self.control not in ('direct', 'iasa'):
+            raise ValueError(f"Unknown control {self.control}")
         super().__init__(*args, **kwargs)
+        if self.control == 'iasa' and abs(float(self.alpha) - 0.5) > 1e-12:
+            raise ValueError('IASA contract fixes filter alpha at 0.5')
         validate_plant(self.plant)
         c = self.contract
         self.H = int(c["history"])
@@ -149,6 +154,10 @@ class FastOuterBackend(WarpOuterBackend):
         d["cmd_f"] = torch.zeros((n,), dtype=torch.float32, device=dev)
         d["z"] = torch.zeros((n,), dtype=torch.float64, device=dev)
         d["pcmd"] = torch.zeros((n,), dtype=torch.float32, device=dev)
+        d["bias"] = torch.zeros((n,), dtype=torch.float32, device=dev)
+        d["h_spd"] = torch.zeros((n, 20), dtype=torch.float32, device=dev)
+        d["h_err"] = torch.zeros((n, 20), dtype=torch.float32, device=dev)
+        d["h_cmd"] = torch.zeros((n, 20), dtype=torch.float32, device=dev)
         d["clk"] = torch.zeros((n,), dtype=torch.int64, device=dev)
         d["dur"] = torch.as_tensor(self.dur.copy(), dtype=torch.int64, device=dev)
         d["ar_N"] = torch.arange(n, dtype=torch.int64, device=dev)
@@ -165,6 +174,10 @@ class FastOuterBackend(WarpOuterBackend):
         d["cnt"] = torch.zeros((n,), dtype=torch.int64, device=dev)
         d["tprev"] = torch.zeros((n,), dtype=torch.float64, device=dev)
         d["phys_cum"] = np.zeros(n, dtype=int)
+        if self.control == 'iasa':
+            # Initialize lag histories with the initial measured frame (raw units).
+            r0 = ref_tab[0]
+            d["h_err"][:] = torch.as_tensor(r0, dtype=torch.float32, device=dev).unsqueeze(1)
         # Warp views share storage; keep both refs alive for the layout lifetime.
         d["w_plant"] = wp.from_torch(d["plant"])
         d["w_volt"] = wp.from_torch(d["volt"])
@@ -204,18 +217,32 @@ class FastOuterBackend(WarpOuterBackend):
         d["cmd_f"][j] = 0.0
         d["z"][j] = 0.0
         d["pcmd"][j] = 0.0
+        d["bias"][j] = 0.0
+        d["h_spd"][j].zero_()
+        d["h_err"][j].zero_()
+        d["h_cmd"][j].zero_()
+        if self.control == 'iasa':
+            d["h_err"][j] = float(rj[0])
         d["clk"][j] = 0
         d["done"][j] = False
         d["fail"][j] = 0
         d["snap"][j].zero_()
         self.phys[j] = 0
         self.done[j] = False
-        # Case retained across auto-resets (matches reference policy).
+        # Lane resampled to an independent scenario (coverage).
         return self._single_host_obs(j)
 
     def _single_host_obs(self, j):
         cj = self.lane_cases[j] if hasattr(self, 'lane_cases') else self.case
         ref = float(schedule_value(cj["reference"], 0, self.tau_i))
+        if self.control == 'iasa':
+            o = np.zeros(19, dtype=np.float32)
+            o[1] = ref / 25
+            o[2] = ref / 25
+            o[3] = np.tanh(ref / 0.05)
+            o[9] = 1.0
+            o[11] = o[14] = o[17] = ref / 25
+            return np.clip(o, -1, 1)
         return np.clip(np.array([0.0, ref / 25, ref / 25, 0.0, 0.0, 0.0, 0.0],
                                 dtype=np.float32), -1, 1)
 
@@ -239,18 +266,26 @@ class FastOuterBackend(WarpOuterBackend):
     def step(self, actions):
         d = self._dev
         dev = d["plant"].device
-        a = np.asarray(actions, dtype=float).reshape(self.n, 1)
+        a = np.asarray(actions, dtype=float).reshape(self.n, -1)
         cmd = torch.as_tensor(1.5 * np.clip(a[:, 0], -1, 1),
                               dtype=torch.float32, device=dev)
         ar = d["ar_N"]
         with torch.no_grad(), torch.cuda.stream(self.tstream):
-            d["cmd_f"] = self.alpha * cmd + (1.0 - self.alpha) * d["cmd_f"]
-            cmdf = d["cmd_f"]
+            if self.control == 'iasa':
+                if a.shape[1] != 2:
+                    raise ValueError('IASA control needs two actor outputs')
+                cmdf, iasa_delta = self._iasa_command(a)
+            else:
+                d["cmd_f"] = self.alpha * cmd + (1.0 - self.alpha) * d["cmd_f"]
+                cmdf = d["cmd_f"]
             clk0 = d["clk"].clone()
             ref0 = d["ref_tab"][clk0.clamp(max=d["dur"]), ar].to(torch.float64)
             om_pre = d["plant"][:, 0].clone()
             z0 = d["z"].clone()
-            delta = (cmd.double() - d["pcmd"].double()).abs() / 3.0
+            if self.control == 'iasa':
+                delta = iasa_delta
+            else:
+                delta = (cmd.double() - d["pcmd"].double()).abs() / 3.0
             d["rew"].zero_()
             d["cnt"].zero_()
             d["tprev"].copy_(self._torque_of(d["plant"]))
@@ -296,16 +331,21 @@ class FastOuterBackend(WarpOuterBackend):
             term = d["done"].clone()
             rew = torch.where(term, torch.full_like(rew, self.failure), rew)
             n_exec = d["cnt"].clone()
-            d["z"] = torch.clamp(
-                z0 + n_exec.to(torch.float64) * self.tau_i
-                * torch.clamp((ref0 - om_pre) / 25, -1, 1) / self.mem_div, -1, 1)
-            d["pcmd"].copy_(cmd)
+            if self.control == 'direct':
+                d["z"] = torch.clamp(
+                    z0 + n_exec.to(torch.float64) * self.tau_i
+                    * torch.clamp((ref0 - om_pre) / 25, -1, 1) / self.mem_div, -1, 1)
+                d["pcmd"].copy_(cmd)
             fin = (~term) & (d["clk"] >= d["dur"])
             trunc = fin
             newt = fin & (~term)
             d["snap"][newt] = d["plant"][newt]
             d["done"] |= trunc
-            obs_t = self._assemble_obs()
+            if self.control == 'iasa':
+                obs_t = self._assemble_iasa_obs()
+                self._record_iasa_history()
+            else:
+                obs_t = self._assemble_obs()
             fail = d["fail"].clone()
         wp.synchronize()
         obs = np.clip(obs_t.cpu().numpy(), -1, 1).astype(np.float32)
@@ -332,8 +372,64 @@ class FastOuterBackend(WarpOuterBackend):
         return 0.0955 * (fa * i[:, 0] + fb * i[:, 1] + fc * i[:, 2])
 
     def _reward_terms(self, ref, om, isd, isq, delta, z0, tq, tprev):
+        mem = 0.0 if self.control == 'iasa' else self.mem_cost
         return _reward_c(ref, om, isd, isq, delta, z0, tq, tprev,
-                         self.shape, self.qw, self.effort, self.mem_cost)
+                         self.shape, self.qw, self.effort, mem)
+
+    def _iasa_command(self, a):
+        """Plan sect.2 action/state equations (device). Returns (cmdf, delta).
+        Updates bias with anti-windup, filter state, and previous-applied."""
+        from rl.outer.contract import (V3_DIRECT_GAIN_A, V3_INCREMENT_GAIN_A,
+                                       V3_COMMAND_LIMIT_A, V3_ANTIWINDUP_GAIN)
+        d = self._dev
+        aP = torch.as_tensor(np.clip(a[:, 0], -1, 1), dtype=torch.float32, device=d["plant"].device)
+        aI = torch.as_tensor(np.clip(a[:, 1], -1, 1), dtype=torch.float32, device=d["plant"].device)
+        p = V3_DIRECT_GAIN_A * aP
+        b_trial = d["bias"] + V3_INCREMENT_GAIN_A * aI
+        v = p + b_trial
+        lim = V3_COMMAND_LIMIT_A
+        s = torch.clamp(v, -lim, lim)
+        d["bias"] = torch.clamp(b_trial + V3_ANTIWINDUP_GAIN * (s - v), -lim, lim)
+        c_prev = d["cmd_f"].clone()
+        d["cmd_f"] = self.alpha * s + (1.0 - self.alpha) * d["cmd_f"]
+        d["pcmd"].copy_(c_prev)
+        delta = (d["cmd_f"].double() - c_prev.double()).abs() / 3.0
+        return d["cmd_f"], delta
+
+    def _assemble_iasa_obs(self):
+        """19-dim v3 observation: 10 base + speed/error/cmd at 5/10/20 ms lags."""
+        d = self._dev
+        st = torch.where(d["done"].unsqueeze(1), d["snap"], d["plant"])
+        om, iabc, eps = st[:, 0], st[:, 1:4], st[:, 4]
+        clk = d["clk"].clamp(max=d["dur"])
+        ref = d["ref_tab"][clk, torch.arange(self.n, device=clk.device)]
+        isd, isq = _dq_f32(iabc, eps)
+        err = (ref - om) / 25
+        base = torch.stack([om / 25, ref / 25, err, torch.tanh((ref - om) / 0.05),
+                            isd / 4, isq / 4, d["bias"] / 1.5, d["pcmd"] / 1.5,
+                            torch.sin(eps), torch.cos(eps)], dim=1)
+        lags = torch.stack([d["h_spd"][:, -5] / 25, d["h_err"][:, -5] / 25, d["h_cmd"][:, -5] / 1.5,
+                            d["h_spd"][:, -10] / 25, d["h_err"][:, -10] / 25, d["h_cmd"][:, -10] / 1.5,
+                            d["h_spd"][:, -20] / 25, d["h_err"][:, -20] / 25,
+                            d["h_cmd"][:, -20] / 1.5], dim=1)
+        v = torch.cat([base, lags], dim=1)
+        if not torch.isfinite(v).all():
+            raise ValueError('Nonfinite IASA observation')
+        return torch.clamp(v, -1, 1).to(torch.float32)
+
+    def _record_iasa_history(self):
+        """Record current frame; called after obs assembly each outer step."""
+        d = self._dev
+        st = torch.where(d["done"].unsqueeze(1), d["snap"], d["plant"])
+        om = st[:, 0]
+        clk = d["clk"].clamp(max=d["dur"])
+        ref = d["ref_tab"][clk, torch.arange(self.n, device=clk.device)]
+        d["h_spd"].copy_(torch.roll(d["h_spd"], shifts=-1, dims=1))
+        d["h_err"].copy_(torch.roll(d["h_err"], shifts=-1, dims=1))
+        d["h_cmd"].copy_(torch.roll(d["h_cmd"], shifts=-1, dims=1))
+        d["h_spd"][:, -1] = om.float()
+        d["h_err"][:, -1] = (ref - om).float()
+        d["h_cmd"][:, -1] = d["cmd_f"]
 
 import os as _os
 
