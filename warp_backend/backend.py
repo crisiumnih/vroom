@@ -78,10 +78,16 @@ class WarpOuterBackend:
         self.contract = contract
 
     def reset(self, n, case=None, seed=None):
+        from warp_backend.rollout import build_tables
         self.n = n
         if seed is not None:
             self.rng = np.random.default_rng(seed)
-        self.case = copy.deepcopy(case or self.scenarios[int(self.rng.integers(len(self.scenarios)))])
+        if case is None:
+            self.case_ids = self.rng.integers(len(self.scenarios), size=n)
+            self.case = copy.deepcopy(self.scenarios[int(self.case_ids[0])])
+        else:
+            self.case_ids = np.full(n, -1)
+            self.case = copy.deepcopy(case)
         self.om = np.zeros(n)
         self.i = np.zeros((n, 3))
         self.eps = np.zeros(n)
@@ -92,8 +98,22 @@ class WarpOuterBackend:
         self.prev_cmd = np.zeros(n)
         self.cmd_f = np.zeros(n)
         self.phys = np.zeros(n, dtype=int)
-        dur = round(self.case["duration_s"] / self.tau_i)
-        self.dur = np.full(n, dur)
+        durs, names, lane_cases = [], [], []
+        T = max(round(c["duration_s"] / self.tau_i) for c in self.scenarios)
+        self.ref_tab = np.zeros((T + 1, n))
+        self.dist_tab = np.zeros((T + 1, n))
+        for j in range(n):
+            cj = self.case if self.case_ids[j] == -1 else self.scenarios[int(self.case_ids[j])]
+            dj = round(cj["duration_s"] / self.tau_i)
+            rj, djc = build_tables(cj, self.tau_i, dj)
+            self.ref_tab[:dj + 1, j] = rj
+            self.dist_tab[:dj + 1, j] = djc
+            durs.append(dj)
+            names.append(cj.get("name", f"case{j}"))
+            lane_cases.append(copy.deepcopy(cj))
+        self.dur = np.asarray(durs)
+        self.case_names = names
+        self.lane_cases = lane_cases
         self.done = np.zeros(n, dtype=bool)
         d_s = wp.array(np.zeros((n, 5)), dtype=wp.float64, device="cuda:0")
         self.d_s = d_s
@@ -103,9 +123,20 @@ class WarpOuterBackend:
         return self._obs()
 
     def reset_env(self, j, seed=None):
-        """Re-init a single env (for VecEnv auto-reset); layout fixed at reset()."""
+        """Re-init a single env with an independently resampled scenario."""
+        from warp_backend.rollout import build_tables
         rng = np.random.default_rng(seed) if seed is not None else self.rng
-        self.case = copy.deepcopy(self.case)  # shared case across envs in this backend
+        idx = int(rng.integers(len(self.scenarios)))
+        cj = copy.deepcopy(self.scenarios[idx])
+        dj = round(cj["duration_s"] / self.tau_i)
+        assert dj + 1 <= self.ref_tab.shape[0], "scenario longer than table"
+        rj, djc = build_tables(cj, self.tau_i, dj)
+        self.ref_tab[:dj + 1, j] = rj
+        self.dist_tab[:dj + 1, j] = djc
+        self.dur[j] = dj
+        self.case_ids[j] = idx
+        self.case_names[j] = cj.get("name", f"case{j}")
+        self.lane_cases[j] = cj
         self.om[j], self.i[j], self.eps[j] = 0.0, np.zeros(3), 0.0
         self.enc[j] = CurrentEncoder(self.contract, "direct")
         self.enc[j].reset()
@@ -119,7 +150,7 @@ class WarpOuterBackend:
         return self._single_obs(j)
 
     def _single_obs(self, j):
-        ref = schedule_value(self.case["reference"], int(self.phys[j]), self.tau_i)
+        ref = self.ref_tab[int(min(self.phys[j], self.ref_tab.shape[0] - 1)), j]
         isd, isq = abc_to_dq(self.i[j:j + 1], self.eps[j:j + 1])
         v = np.array([self.om[j] / 25, ref / 25, (ref - self.om[j]) / 25,
                       float(isd[0]) / 4, float(isq[0]) / 4,
@@ -128,7 +159,8 @@ class WarpOuterBackend:
         return np.clip(v, -1, 1)
 
     def _obs(self):
-        ref = np.array([schedule_value(self.case["reference"], int(p), self.tau_i) for p in self.phys])
+        ar = np.arange(self.n)
+        ref = self.ref_tab[np.clip(self.phys, 0, self.ref_tab.shape[0] - 1), ar]
         isd, isq = abc_to_dq(self.i, self.eps)
         v = np.stack([self.om / 25, ref / 25, (ref - self.om) / 25, isd / 4, isq / 4,
                       self.prev_cmd / 1.5, self.z], axis=1).astype(np.float32)
@@ -158,7 +190,7 @@ class WarpOuterBackend:
             live = ~(term | trunc) & (self.phys < self.dur)
             if not live.any():
                 break
-            dist = np.array([schedule_value(self.case["disturbance"], int(p), self.tau_i) for p in self.phys])
+            dist = self.dist_tab[np.clip(self.phys, 0, self.dist_tab.shape[0] - 1), np.arange(self.n)]
             isd, isq = abc_to_dq(self.i, self.eps)
             # batched inner forward
             obatch = np.stack([e.encode(
@@ -211,5 +243,6 @@ class WarpOuterBackend:
         trunc[fin] = True
         self.done = term | trunc
         obs, _ = self._obs()
-        infos = [{"failure": fail[j], "physics_steps": int(self.phys[j])} for j in range(self.n)]
+        infos = [{"failure": fail[j], "physics_steps": int(self.phys[j]),
+                  "scenario": self.case_names[j]} for j in range(self.n)]
         return obs, rewards, term, trunc, infos
