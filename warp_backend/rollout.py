@@ -1,0 +1,387 @@
+"""Device-resident inner rollout loop (P1/P2 optimization).
+
+Same controller contract as WarpOuterBackend.step; the host only sees the
+SB3 outer-step boundary (actions in; obs/rewards/dones/infos out, one sync).
+WarpOuterBackend is the unchanged reference: contract changes must land in
+both until the reference is retired. Differences from the reference are
+intentional defect repairs, flagged below with [REPAIR].
+
+[REPAIR-1] Terminated lanes freeze at first termination (plant, encoder,
+controller memory, terminal snapshot). The reference keeps advancing them.
+[REPAIR-2] infos carry `inner_steps` (executed-step deltas). The cumulative
+`physics_steps` key is preserved for existing consumers.
+"""
+import copy
+import numpy as np
+import torch
+import warp as wp
+
+import sys
+from pathlib import Path
+import os
+_here = Path(__file__).resolve()
+
+
+def _gem_root():
+    sub = _here.parents[1] / "third_party" / "gym-electric-motor"
+    if (sub / "benchmarks" / "bldc" / "current_rl" / "core.py").exists():
+        return str(sub)
+    env = os.environ.get("VROOM_GEM_PATH")
+    if env and Path(env).exists():
+        return env
+    return "/home/sra/prajwal/fyp/gym-electric-motor"
+
+
+GEM_ROOT = _gem_root()
+if GEM_ROOT not in sys.path:
+    sys.path.insert(0, GEM_ROOT)
+
+from benchmarks.bldc.environment import schedule_value
+from warp_backend import fullstep as fs
+from warp_backend.backend import WarpOuterBackend
+
+wp.init()
+
+SQRT3_2 = 0.8660254037844386
+NOMINAL = dict(p=21, r_s=85e-3, l_s=50e-6, k_e=0.0955, supply_v=44.4,
+               j_total=0.003, load_a=0.01, load_b=0.01, load_c=0.0,
+               tau_s=1e-4, ref_limit_a=1.5)
+
+
+def validate_plant(plant):
+    """Reject configurations the nominal FP64 kernel does not implement."""
+    m, lo = plant["motor"], plant["load"]
+    checks = {
+        "motor.p": (m["p"], NOMINAL["p"]),
+        "motor.r_s": (m["r_s"], NOMINAL["r_s"]),
+        "motor.l_s": (m["l_s"], NOMINAL["l_s"]),
+        "motor.k_e": (m["k_e"], NOMINAL["k_e"]),
+        "supply_v": (plant["supply_v"], NOMINAL["supply_v"]),
+        "j_rotor+j_load": (m["j_rotor"] + lo["j_load"], NOMINAL["j_total"]),
+        "load.a": (lo["a"], NOMINAL["load_a"]),
+        "load.b": (lo["b"], NOMINAL["load_b"]),
+        "load.c": (lo["c"], NOMINAL["load_c"]),
+        "tau_s": (plant["tau_s"], NOMINAL["tau_s"]),
+        "current_reference_limit_a": (plant["controller"]["current_reference_limit_a"],
+                                      NOMINAL["ref_limit_a"]),
+    }
+    bad = [k for k, (got, want) in checks.items()
+           if not np.isclose(got, want, rtol=1e-9, atol=0.0)]
+    if bad:
+        raise ValueError(f"Unsupported plant for nominal kernel: {bad}")
+
+
+def build_tables(case, tau_i, dur):
+    """Per-step reference/disturbance columns with exact round() semantics.
+
+    schedule_value takes the last event with round(t/dt)<=k; filling segments
+    between consecutive integer boundaries reproduces it exactly. Rejects
+    unsorted schedules rather than silently reordering them.
+    """
+    cols = {}
+    for key in ("reference", "disturbance"):
+        sched = case[key]
+        ts = [t for t, _ in sched]
+        if any(b < a for a, b in zip(ts, ts[1:])):
+            raise ValueError(f"Unsorted {key} schedule")
+        bounds = [round(t / tau_i) for t, _ in sched]
+        col = np.empty(dur + 1)
+        for (b0, (_, v0)), b1 in zip(zip(bounds, sched), bounds[1:] + [dur + 1]):
+            col[max(b0, 0):max(b1, 0)] = v0[1] if isinstance(v0, (list, tuple)) else v0
+        cols[key] = col
+    return cols["reference"], cols["disturbance"]
+
+
+class FastOuterBackend(WarpOuterBackend):
+    """Drop-in device path. API identical to WarpOuterBackend.step/reset."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        validate_plant(self.plant)
+        c = self.contract
+        self.H = int(c["history"])
+        self.SCL = float(c["current_scale_a"])
+        self.SPD = float(c["speed_scale_rad_s"])
+        self.BND = float(c["integrator_bound"])
+        self.ANL = float(c["action_norm_limit"])
+        self.wstream = wp.Stream("cuda:0")
+        handle = self.wstream.cuda_stream
+        self.tstream = torch.cuda.ExternalStream(int(handle))
+        self._dev = None
+
+    def reset(self, n, case=None, seed=None):
+        self.n = n
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        self.case = copy.deepcopy(case or self.scenarios[int(self.rng.integers(len(self.scenarios)))])
+        dur = round(self.case["duration_s"] / self.tau_i)
+        self.dur = np.full(n, dur)
+        dev = torch.device("cuda:0")
+        ref_col, dist_col = build_tables(self.case, self.tau_i, dur)
+        T = dur + 1
+        ref_tab = np.tile(ref_col[:, None], (1, n))
+        dist_tab = np.tile(dist_col[:, None], (1, n))
+        d = {}
+        d["plant"] = torch.zeros((n, 5), dtype=torch.float64, device=dev)
+        d["hist"] = torch.zeros((n, self.H, 2), dtype=torch.float32, device=dev)
+        d["prev"] = torch.zeros((n, 4), dtype=torch.float32, device=dev)
+        d["cmd_f"] = torch.zeros((n,), dtype=torch.float32, device=dev)
+        d["z"] = torch.zeros((n,), dtype=torch.float64, device=dev)
+        d["pcmd"] = torch.zeros((n,), dtype=torch.float32, device=dev)
+        d["clk"] = torch.zeros((n,), dtype=torch.int64, device=dev)
+        d["dur"] = torch.as_tensor(self.dur.copy(), dtype=torch.int64, device=dev)
+        d["ar_N"] = torch.arange(n, dtype=torch.int64, device=dev)
+        d["ref_tab"] = torch.as_tensor(np.ascontiguousarray(ref_tab), dtype=torch.float64, device=dev)
+        d["dist_tab"] = torch.as_tensor(np.ascontiguousarray(dist_tab), dtype=torch.float64, device=dev)
+        d["volt"] = torch.zeros((n, 2), dtype=torch.float64, device=dev)
+        d["dist_b"] = torch.zeros((n,), dtype=torch.float64, device=dev)
+        d["out"] = torch.zeros((n, 6), dtype=torch.float64, device=dev)
+        d["live"] = torch.zeros((n,), dtype=torch.int32, device=dev)
+        d["done"] = torch.zeros((n,), dtype=torch.bool, device=dev)
+        d["snap"] = torch.zeros((n, 5), dtype=torch.float64, device=dev)
+        d["fail"] = torch.zeros((n,), dtype=torch.int8, device=dev)
+        d["rew"] = torch.zeros((n,), dtype=torch.float64, device=dev)
+        d["cnt"] = torch.zeros((n,), dtype=torch.int64, device=dev)
+        d["tprev"] = torch.zeros((n,), dtype=torch.float64, device=dev)
+        d["phys_cum"] = np.zeros(n, dtype=int)
+        # Warp views share storage; keep both refs alive for the layout lifetime.
+        d["w_plant"] = wp.from_torch(d["plant"])
+        d["w_volt"] = wp.from_torch(d["volt"])
+        d["w_dist"] = wp.from_torch(d["dist_b"])
+        d["w_out"] = wp.from_torch(d["out"])
+        d["w_live"] = wp.from_torch(d["live"])
+        self._dev = d
+        # Host mirrors kept only for infos/diagnostics, not for stepping.
+        self.phys = np.zeros(n, dtype=int)
+        self.done = np.zeros(n, dtype=bool)
+        with torch.cuda.stream(self.tstream):
+            torch.cuda.synchronize()
+        return self._read_obs()
+
+    def reset_env(self, j, seed=None):
+        d = self._dev
+        d["plant"][j].zero_()
+        d["hist"][j].zero_()
+        d["prev"][j].zero_()
+        d["cmd_f"][j] = 0.0
+        d["z"][j] = 0.0
+        d["pcmd"][j] = 0.0
+        d["clk"][j] = 0
+        d["done"][j] = False
+        d["fail"][j] = 0
+        d["snap"][j].zero_()
+        self.phys[j] = 0
+        self.done[j] = False
+        # Case retained across auto-resets (matches reference policy).
+        return self._single_host_obs(j)
+
+    def _single_host_obs(self, j):
+        ref = float(schedule_value(self.case["reference"], 0, self.tau_i))
+        return np.clip(np.array([0.0, ref / 25, ref / 25, 0.0, 0.0, 0.0, 0.0],
+                                dtype=np.float32), -1, 1)
+
+    def _read_obs(self):
+        with torch.no_grad():
+            o = self._assemble_obs()
+        wp.synchronize()
+        return np.clip(o.cpu().numpy(), -1, 1)
+
+    def _assemble_obs(self):
+        d = self._dev
+        st = torch.where(d["done"].unsqueeze(1), d["snap"], d["plant"])
+        om, iabc, eps = st[:, 0], st[:, 1:4], st[:, 4]
+        clk = d["clk"].clamp(max=d["dur"])
+        ref = d["ref_tab"][clk, torch.arange(self.n, device=clk.device)]
+        isd, isq = _dq_f32(iabc, eps)
+        v = torch.stack([om / 25, ref / 25, (ref - om) / 25, isd / 4, isq / 4,
+                         d["pcmd"] / 1.5, d["z"].to(torch.float32)], dim=1)
+        return v.to(torch.float32)
+
+    def step(self, actions):
+        d = self._dev
+        dev = d["plant"].device
+        a = np.asarray(actions, dtype=float).reshape(self.n, 1)
+        cmd = torch.as_tensor(1.5 * np.clip(a[:, 0], -1, 1),
+                              dtype=torch.float32, device=dev)
+        ar = d["ar_N"]
+        with torch.no_grad(), torch.cuda.stream(self.tstream):
+            d["cmd_f"] = self.alpha * cmd + (1.0 - self.alpha) * d["cmd_f"]
+            cmdf = d["cmd_f"]
+            clk0 = d["clk"].clone()
+            ref0 = d["ref_tab"][clk0.clamp(max=d["dur"]), ar].to(torch.float64)
+            om_pre = d["plant"][:, 0].clone()
+            z0 = d["z"].clone()
+            delta = (cmd.double() - d["pcmd"].double()).abs() / 3.0
+            d["rew"].zero_()
+            d["cnt"].zero_()
+            d["tprev"].copy_(self._torque_of(d["plant"]))
+            for _ in range(self.hold):
+                live = (~d["done"]) & (d["clk"] < d["dur"])
+                d["live"].copy_(live.to(torch.int32))
+                dist = d["dist_tab"][d["clk"].clamp(max=d["dur"]), ar]
+                d["dist_b"].copy_(dist)
+                i_f32 = d["plant"][:, 1:4].to(torch.float32)
+                e_f32 = d["plant"][:, 4].to(torch.float32)
+                o_f32 = d["plant"][:, 0].to(torch.float32)
+                volt, branches, isd, isq = _inner_c(
+                    i_f32, e_f32, cmdf, d["prev"], d["hist"], o_f32,
+                    self.cur_lim, self.n, self.H, self.model.actor, self.ANL)
+                d["prev"].copy_(torch.where(live.view(-1, 1), branches, d["prev"]))
+                rolled = torch.roll(d["hist"], shifts=-1, dims=1)
+                newdq = torch.stack([isd, isq], dim=1)
+                rolled[:, -1, :] = torch.where(live.view(-1, 1), newdq, rolled[:, -1, :])
+                d["hist"].copy_(torch.where(live.view(-1, 1, 1), rolled, d["hist"]))
+                d["volt"].copy_(volt.to(torch.float64))
+                wp.launch(fs.fullstep_masked, dim=self.n,
+                          inputs=[d["w_plant"], d["w_volt"], d["w_dist"], d["w_live"],
+                                  wp.float64(self.tau_i), d["w_out"]],
+                          stream=self.wstream)
+                # Stream-ordered: torch observes kernel output on the same stream.
+                om_n, i_n, tq = d["out"][:, 0], d["out"][:, 1:4], d["out"][:, 5]
+                isd2, isq2 = _dq_f64(i_n, d["out"][:, 4])
+                ab = i_n.abs()
+                tripped = ((ab[:, 0] > 4.0) | (ab[:, 1] > 4.0) | (ab[:, 2] > 4.0)) & live
+                first = tripped & (~d["done"])
+                d["snap"].copy_(torch.where(first.view(-1, 1), d["out"][:, :5], d["snap"]))
+                d["fail"].copy_(torch.where(first, torch.ones_like(d["fail"]), d["fail"]))
+                d["plant"].copy_(torch.where(live.view(-1, 1), d["out"][:, :5], d["plant"]))
+                d["clk"] += live.to(torch.int64)
+                d["cnt"] += live.to(torch.int64)
+                d["rew"] += live.to(torch.float64) * (-self._reward_terms(
+                    ref0, om_n, isd2, isq2, delta, z0, tq, d["tprev"]))
+                d["tprev"].copy_(tq)
+                d["done"] |= tripped
+            cnt = d["cnt"].clamp(min=1)
+            rew = torch.where(d["cnt"] > 0, d["rew"] / cnt.to(torch.float64),
+                              torch.zeros_like(d["rew"]))
+            term = d["done"].clone()
+            rew = torch.where(term, torch.full_like(rew, self.failure), rew)
+            n_exec = d["cnt"].clone()
+            d["z"] = torch.clamp(
+                z0 + n_exec.to(torch.float64) * self.tau_i
+                * torch.clamp((ref0 - om_pre) / 25, -1, 1) / self.mem_div, -1, 1)
+            d["pcmd"].copy_(cmd)
+            fin = (~term) & (d["clk"] >= d["dur"])
+            trunc = fin
+            newt = fin & (~term)
+            d["snap"][newt] = d["plant"][newt]
+            d["done"] |= trunc
+            obs_t = self._assemble_obs()
+            fail = d["fail"].clone()
+        wp.synchronize()
+        obs = np.clip(obs_t.cpu().numpy(), -1, 1).astype(np.float32)
+        rew_h = rew.cpu().numpy()
+        term_h = term.cpu().numpy()
+        trunc_h = trunc.cpu().numpy()
+        delta_h = n_exec.cpu().numpy()
+        fail_h = fail.cpu().numpy()
+        self.phys += delta_h
+        self.done = term_h | trunc_h
+        infos = [{"failure": "phase_current_trip" if int(f) == 1 else None,
+                  "physics_steps": int(p), "inner_steps": int(k)}
+                 for f, p, k in zip(fail_h, self.phys, delta_h)]
+        return obs, rew_h, term_h, trunc_h, infos
+
+    def _torque_of(self, plant):
+        om, i, eps = plant[:, 0], plant[:, 1:4], plant[:, 4]
+        th = eps - torch.floor(eps / (2 * np.pi)) * (2 * np.pi)
+        sh = 5 * np.pi / 6
+        fa = _trap(_wrap(th + sh))
+        fb = _trap(_wrap(th - 2 * np.pi / 3 + sh))
+        fc = _trap(_wrap(th - 4 * np.pi / 3 + sh))
+        return 0.0955 * (fa * i[:, 0] + fb * i[:, 1] + fc * i[:, 2])
+
+    def _reward_terms(self, ref, om, isd, isq, delta, z0, tq, tprev):
+        return _reward_c(ref, om, isd, isq, delta, z0, tq, tprev,
+                         self.shape, self.qw, self.effort, self.mem_cost)
+
+import os as _os
+
+_COMPILE = _os.environ.get("VROOM_NO_COMPILE", "0") != "1"
+
+
+def _maybe_compile(fn):
+    # reduce-overhead replays compiled regions as CUDA graphs: dynamo guard
+    # evaluation (~110us/call) otherwise dominates these tiny regions.
+    # Static shapes per backend instance; no data-dependent flow inside.
+    return torch.compile(fn, mode="reduce-overhead") if _COMPILE else fn
+
+
+def _inner_block(iabc, eps, cmdf, prev, hist, om, cur_lim, n, H, actor, anl):
+    """Fused per-inner-step controller: dq, encode, frozen actor, project.
+
+    One compiled region instead of separate encode/actor/project calls plus
+    eager glue, cutting dynamo per-call overhead and torch dispatch count.
+    The actor module is closed over (frozen inner policy); guards specialize
+    on its static state.
+    """
+    e = eps.to(torch.float32)
+    a = (2.0 / 3.0) * (iabc[:, 0] - 0.5 * iabc[:, 1] - 0.5 * iabc[:, 2])
+    b = (2.0 / 3.0) * (0.8660254037844386 * iabc[:, 1] - 0.8660254037844386 * iabc[:, 2])
+    ce, se = torch.cos(e), torch.sin(e)
+    isd, isq = ce * a + se * b, -se * a + ce * b
+    s = 4.0
+    i = torch.stack([isd, isq], dim=1)
+    ref = torch.stack([torch.zeros_like(cmdf),
+                       cmdf * torch.clamp(cur_lim / torch.clamp(cmdf.abs(), min=1e-30),
+                                          max=1.0)], dim=1)
+    ep = eps.to(torch.float32)
+    vals = torch.cat([i / s, ref / s, (ref - i) / (2 * s), prev,
+                      hist.reshape(n, -1) / s, (om / 20.0).unsqueeze(1),
+                      torch.sin(ep).unsqueeze(1), torch.cos(ep).unsqueeze(1),
+                      torch.zeros((n, 2), dtype=torch.float32, device=om.device)], dim=1)
+    obs_in = torch.clamp(vals, -1, 1)
+    raw = actor(obs_in)
+    r = torch.clamp(raw, -1, 1)
+    branches = torch.cat([r, torch.zeros((n, 2), dtype=r.dtype, device=r.device)], dim=1)
+    requested = r * anl
+    nrm = torch.sqrt(requested[:, 0] ** 2 + requested[:, 1] ** 2).unsqueeze(1)
+    scale = torch.minimum(torch.ones_like(nrm), anl / torch.clamp(nrm, min=1e-30))
+    return requested * scale, branches, isd, isq
+
+
+def _reward_vals(ref, om, isd, isq, delta, z0, tq, tprev, shape, qw, effort, mem_cost):
+    en = torch.clamp((ref - om) / 25, -1, 1)
+    if shape == "qeff":
+        spd = qw * en ** 2
+    else:
+        spd = 4.0 * en ** 2
+        if shape == "l1":
+            spd = spd + 4.0 * (en.abs() - en ** 2)
+    cur = 0.5 * torch.clamp(torch.hypot(isd, isq) / 4, 0, 1) ** 2
+    dlt = effort * 0.1 * torch.clamp(delta, 0, 1) ** 2
+    mem = mem_cost * z0 ** 2
+    tqd = effort * 0.1 * torch.clamp((tq - tprev).abs() / 0.1, 0, 1) ** 2
+    return spd + cur + dlt + mem + tqd
+
+
+_reward_c = _maybe_compile(_reward_vals)
+_inner_c = _maybe_compile(_inner_block)
+
+
+def _wrap(t):
+    return t - torch.floor(t / (2 * np.pi)) * (2 * np.pi)
+
+
+def _trap(t):
+    lo1, pi, hi5, tpi = 2 * np.pi / 3, np.pi, 5 * np.pi / 3, 2 * np.pi
+    ramp_down = 1.0 - 2.0 * (t - lo1) / (pi - lo1)
+    ramp_up = -1.0 + 2.0 * (t - hi5) / (tpi - hi5)
+    mid = torch.where(t < pi, ramp_down, torch.tensor(-1.0, device=t.device))
+    tail = torch.where(t < hi5, mid, ramp_up)
+    return torch.where(t < lo1, torch.tensor(1.0, device=t.device), tail)
+
+
+def _dq_f32(iabc, eps):
+    e = eps.to(torch.float32)
+    a = (2.0 / 3.0) * (iabc[:, 0] - 0.5 * iabc[:, 1] - 0.5 * iabc[:, 2])
+    b = (2.0 / 3.0) * (SQRT3_2 * iabc[:, 1] - SQRT3_2 * iabc[:, 2])
+    ce, se = torch.cos(e), torch.sin(e)
+    return ce * a + se * b, -se * a + ce * b
+
+
+def _dq_f64(iabc, eps):
+    a = (2.0 / 3.0) * (iabc[:, 0] - 0.5 * iabc[:, 1] - 0.5 * iabc[:, 2])
+    b = (2.0 / 3.0) * (SQRT3_2 * iabc[:, 1] - SQRT3_2 * iabc[:, 2])
+    ce, se = torch.cos(eps), torch.sin(eps)
+    return ce * a + se * b, -se * a + ce * b

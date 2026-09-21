@@ -1,4 +1,6 @@
-"""Throughput: 100k electrical-RHS evals, numpy vs warp, batch scaling."""
+"""Throughput of the complete per-call RHS path (allocate, upload, launch,
+synchronize, download), numpy vs warp, batch scaling. NOT a kernel-only
+benchmark: use it for path comparisons, not pure kernel-speed claims."""
 import time
 import numpy as np
 import warp as wp
