@@ -14,7 +14,8 @@ CASE = dict(name='iasa', duration_s=0.2, reference=[[0., 0.], [.01, 3.]],
 
 
 def _be(n=2, seed=0):
-    be = FastOuterBackend(cfg['plant'], cfg['inner_study'], inner, [CASE], seed=seed, control='iasa', smooth_alpha=0.5)
+    be = FastOuterBackend(cfg['plant'], cfg['inner_study'], inner, [CASE], seed=seed, control='iasa', smooth_alpha=0.5,
+                          reward_shape='l1')
     be.reset(n, case=CASE, seed=seed)
     return be
 

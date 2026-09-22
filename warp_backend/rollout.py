@@ -102,6 +102,10 @@ class FastOuterBackend(WarpOuterBackend):
         super().__init__(*args, **kwargs)
         if self.control == 'iasa' and abs(float(self.alpha) - 0.5) > 1e-12:
             raise ValueError('IASA contract fixes filter alpha at 0.5')
+        if self.shape == 'candidate' and self.control != 'iasa':
+            raise ValueError('Candidate reward (v4) requires iasa control')
+        if self.control == 'iasa' and self.shape not in ('l1', 'candidate'):
+            raise ValueError(f"IASA supports reward shapes l1/candidate, not {self.shape}")
         validate_plant(self.plant)
         c = self.contract
         self.H = int(c["history"])
@@ -284,6 +288,12 @@ class FastOuterBackend(WarpOuterBackend):
             z0 = d["z"].clone()
             if self.control == 'iasa':
                 delta = iasa_delta
+                if self.shape == 'candidate':
+                    dev = d["plant"].device
+                    aP = torch.as_tensor(np.clip(a[:, 0], -1, 1), dtype=torch.float64, device=dev)
+                    aI = torch.as_tensor(np.clip(a[:, 1], -1, 1), dtype=torch.float64, device=dev)
+                    c_now = d["cmd_f"].double()
+                    c_prev = d["pcmd"].double()
             else:
                 delta = (cmd.double() - d["pcmd"].double()).abs() / 3.0
             d["rew"].zero_()
@@ -321,8 +331,14 @@ class FastOuterBackend(WarpOuterBackend):
                 d["plant"].copy_(torch.where(live.view(-1, 1), d["out"][:, :5], d["plant"]))
                 d["clk"] += live.to(torch.int64)
                 d["cnt"] += live.to(torch.int64)
-                d["rew"] += live.to(torch.float64) * (-self._reward_terms(
-                    ref0, om_n, isd2, isq2, delta, z0, tq, d["tprev"]))
+                if self.shape == 'candidate':
+                    # Per-outer command costs are constant across inner samples;
+                    # adding them per sample then taking the mean is exact.
+                    d["rew"] += live.to(torch.float64) * (-_candidate_reward_c(
+                        ref0, om_n, c_now, c_prev, aP, aI))
+                else:
+                    d["rew"] += live.to(torch.float64) * (-self._reward_terms(
+                        ref0, om_n, isd2, isq2, delta, z0, tq, d["tprev"]))
                 d["tprev"].copy_(tq)
                 d["done"] |= tripped
             cnt = d["cnt"].clamp(min=1)
@@ -476,6 +492,20 @@ def _inner_block(iabc, eps, cmdf, prev, hist, om, cur_lim, n, H, actor, anl):
     return requested * scale, branches, isd, isq
 
 
+def _candidate_reward_vals(ref, om, c_now, c_prev, a_p, a_i):
+    """Plan sect.3 candidate cost per inner sample (v4 contract).
+
+    Tracking is per executed inner sample; the outer command costs are
+    constant across the hold, so callers may add them per sample before
+    taking the mean over executed steps. Mirrors rl.outer.reward reference.
+    """
+    e = torch.clamp(ref - om, -25.0, 25.0)
+    track = 4.0 * (e / 25.0) ** 2 + 0.1 * torch.log1p((e / 0.05) ** 2)
+    cmd = (0.02 * ((c_now - c_prev) / 3.0) ** 2
+           + 0.01 * a_i ** 2 + 0.001 * a_p ** 2)
+    return track + cmd
+
+
 def _reward_vals(ref, om, isd, isq, delta, z0, tq, tprev, shape, qw, effort, mem_cost):
     en = torch.clamp((ref - om) / 25, -1, 1)
     if shape == "qeff":
@@ -492,6 +522,7 @@ def _reward_vals(ref, om, isd, isq, delta, z0, tq, tprev, shape, qw, effort, mem
 
 
 _reward_c = _maybe_compile(_reward_vals)
+_candidate_reward_c = _maybe_compile(_candidate_reward_vals)
 _inner_c = _maybe_compile(_inner_block)
 
 
