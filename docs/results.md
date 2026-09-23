@@ -44,19 +44,29 @@ tail ripple pp ~0.03 rad/s at 5 rad/s reference.
 
 Score: `passed 0/6` all direct seeds (settling/tail/peak-current gates).
 
-**IASA (stopped deliberately at ~1.4M/2M):** flat lines — validation never
-improves past the 200k checkpoint on 3/4 seeds (4th: 200k→800k, RMSE
-0.674→0.667, noise). Best RMSE `0.65/0.71/0.93/0.67`, passed `1/6, 0/6, 2/6,
-0/6`. The `2/6` is an early-checkpoint fluctuation, not learning.
+## Reward stage: outer-iasa-v2 (completed 2026-09-23)
 
-![IASA vs direct](figs/iasa_vs_direct_rmse.png)
+Reward-only change, 2 arms x 4 fresh seeds (36-39), 250k/env. Winner:
+**`iasa-candidate`**. Full queue 8/8 clean, `failed 0`.
 
-**Readout:** IASA action structure under the L1 reward trains stably
-(`failed 0`) but does not qualify — same plateau as direct, no better.
-Per `plan/plan.md`, the next lever is the candidate reward stage, not more
-steps of this configuration. Both waves were stopped early once the plateau
-was evident (~1.6M direct, ~1.4M IASA); curves show nothing was trending
-upward at stop time.
+![v2 RMSE](figs/v2_rmse.png)
+
+| arm | best RMSE | violations/seed | passed |
+|---|---|---|---|
+| iasa-l1 (v3) | 0.64-0.71 | 12-20 | 0/6 all seeds |
+| iasa-candidate (v4) | 0.63-0.65 | 2 | 4/6 all seeds |
+
+Same RMSE band, different gates. L1 fails on settling everywhere (slow
+transients + standstill offset) plus peak current; candidate settles with PI
+and holds — the log-tracking + no-current-penalty change did exactly what
+sect.3 predicted. Remaining candidate failures are `peak_current` on
+`reversal` and `outer_dev_negative` only.
+
+![v2 startup](figs/v2_startup.png)
+
+Next lever for the last two cases: peak-current behavior under reversal/dev
+events (action-structure or current-guard change — new screen, not a tweak
+of this one).
 
 ## Reproduce
 
