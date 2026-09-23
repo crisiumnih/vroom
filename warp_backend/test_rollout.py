@@ -20,7 +20,7 @@ def _gem_root():
 GEM_ROOT = _gem_root()
 sys.path.insert(0, GEM_ROOT)
 from warp_backend.backend import WarpOuterBackend
-from warp_backend.rollout import FastOuterBackend, validate_plant
+from warp_backend.rollout import FastOuterBackend
 
 CASE = dict(name="rollout_parity", duration_s=0.3,
             reference=[[0.0, 0.0], [0.05, 5.0]],
@@ -136,6 +136,7 @@ def test_truncation_freezes_terminal_obs():
 def test_masked_kernel_freezes_dead_lanes():
     import torch, warp as wp
     from warp_backend import fullstep as fs
+    from warp_backend.plant import LEGACY_L0
     wp.init()
     n = 8
     s0 = np.random.default_rng(0).uniform(-1, 1, (n, 5))
@@ -144,9 +145,11 @@ def test_masked_kernel_freezes_dead_lanes():
     d_d = wp.zeros(n, dtype=wp.float64, device="cuda:0")
     d_l = wp.array(np.array([1, 1, 1, 1, 0, 0, 0, 0], dtype=np.int32), device="cuda:0")
     d_o = wp.zeros((n, 6), dtype=wp.float64, device="cuda:0")
+    d_p = wp.array(np.ascontiguousarray([LEGACY_L0.row() for _ in range(n)]),
+                   dtype=wp.float64, device="cuda:0")
     for _ in range(5):
         wp.launch(fs.fullstep_masked, dim=n,
-                  inputs=[d_s, d_a, d_d, d_l, wp.float64(1e-4), d_o], device="cuda:0")
+                  inputs=[d_s, d_a, d_d, d_l, wp.float64(1e-4), d_o, d_p], device="cuda:0")
     wp.synchronize()
     s1 = d_s.numpy()
     assert np.array_equal(np.asarray(s1[4:]), s0[4:]), "dead lanes must be bitwise frozen"
@@ -173,6 +176,15 @@ def test_plant_rejection():
     import copy
     plant, study, inner = _pieces()
     bad = copy.deepcopy(plant)
-    bad["supply_v"] = 48.0
-    with __import__("pytest").raises(ValueError, match="supply_v"):
+    bad["motor"]["r_s"] = -0.01
+    with __import__("pytest").raises(ValueError, match="r_s"):
         FastOuterBackend(bad, study, inner, [CASE], seed=0)
+
+
+def test_non_nominal_supply_accepted():
+    """Nominal-only restriction removed (master_plan PR1): 48 V is physical."""
+    import copy
+    plant, study, inner = _pieces()
+    ok = copy.deepcopy(plant)
+    ok["supply_v"] = 48.0
+    FastOuterBackend(ok, study, inner, [CASE], seed=0)

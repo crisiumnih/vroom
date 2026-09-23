@@ -21,6 +21,7 @@ def _gem_root():
 GEM_ROOT = _gem_root()
 sys.path.insert(0, GEM_ROOT)
 from warp_backend import fullstep as fs
+from warp_backend.plant import LEGACY_L0
 from benchmarks.bldc.control import PIController
 from benchmarks.bldc.interfaces import project_voltage
 
@@ -35,6 +36,7 @@ def run_warp_closed():
     d_a = wp.zeros((1, 2), dtype=wp.float64, device="cuda:0")
     d_d = wp.zeros(1, dtype=wp.float64, device="cuda:0")
     d_o = wp.zeros((1, 6), dtype=wp.float64, device="cuda:0")
+    d_p = wp.array(np.ascontiguousarray([LEGACY_L0.row()]), dtype=wp.float64, device="cuda:0")
     pi = PIController(0.001, 0.05, 0.12)
     trace = np.zeros((STEPS, 6))
     for k in range(STEPS):
@@ -42,7 +44,7 @@ def run_warp_closed():
         ref = 0.0 if k < HOLD else 10.0
         act = project_voltage(pi.act({"omega": om}, ref, DT), 0.12)
         d_a = wp.array(np.asarray(act, dtype=np.float64).reshape(1, 2), dtype=wp.float64, device="cuda:0")
-        wp.launch(fs.fullstep_once, dim=1, inputs=[d_s, d_a, d_d, wp.float64(DT), d_o], device="cuda:0")
+        wp.launch(fs.fullstep_once, dim=1, inputs=[d_s, d_a, d_d, wp.float64(DT), d_o, d_p], device="cuda:0")
         trace[k] = d_o.numpy()[0]
     wp.synchronize()
     return trace

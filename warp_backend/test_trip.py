@@ -17,6 +17,7 @@ def _gem_root():
 GEM_ROOT = _gem_root()
 sys.path.insert(0, GEM_ROOT)
 from warp_backend import fullstep as fs
+from warp_backend.plant import LEGACY_L0
 
 wp.init()
 DT = 1e-4
@@ -36,8 +37,9 @@ def warp_trip():
     d_a = wp.array(acts, dtype=wp.float64, device="cuda:0")
     d_d = wp.zeros((STEPS, 1), dtype=wp.float64, device="cuda:0")
     d_tr = wp.zeros((STEPS, 1, 6), dtype=wp.float64, device="cuda:0")
+    d_p = wp.array(np.ascontiguousarray([LEGACY_L0.row()]), dtype=wp.float64, device="cuda:0")
     wp.launch(fs.fullstep_kernel, dim=1,
-              inputs=[d_s, d_a, d_d, wp.float64(DT), STEPS, d_tr], device="cuda:0")
+              inputs=[d_s, d_a, d_d, wp.float64(DT), STEPS, d_p, d_tr], device="cuda:0")
     wp.synchronize()
     tr = d_tr.numpy()[:, 0, :]
     peak = np.abs(tr[:, 1:4]).max(axis=1)

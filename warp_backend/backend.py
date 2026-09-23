@@ -77,11 +77,13 @@ class WarpOuterBackend:
         self.n = None
         self.contract = contract
 
-    def reset(self, n, case=None, seed=None):
+    def reset(self, n, case=None, seed=None, plants=None):
         from warp_backend.rollout import build_tables
+        from warp_backend.plant import resolve_plants
         self.n = n
         if seed is not None:
             self.rng = np.random.default_rng(seed)
+        self.lane_plants = resolve_plants(plants if plants is not None else self.plant, n)
         if case is None:
             self.case_ids = self.rng.integers(len(self.scenarios), size=n)
             self.case = copy.deepcopy(self.scenarios[int(self.case_ids[0])])
@@ -120,6 +122,9 @@ class WarpOuterBackend:
         self.d_a = wp.zeros((n, 2), dtype=wp.float64, device="cuda:0")
         self.d_d = wp.zeros(n, dtype=wp.float64, device="cuda:0")
         self.d_o = wp.zeros((n, 6), dtype=wp.float64, device="cuda:0")
+        self.d_p = wp.array(np.ascontiguousarray([p.row() for p in self.lane_plants]),
+                            dtype=wp.float64, device="cuda:0")
+        self.ke = np.array([p.k_e for p in self.lane_plants])
         return self._obs()
 
     def reset_env(self, j, seed=None):
@@ -185,7 +190,7 @@ class WarpOuterBackend:
         fail = [None] * self.n
         counts = np.zeros(self.n, dtype=int)
         fa, fb, fc = bemf_shape(self.eps)
-        tprev = 0.0955 * (fa * self.i[:, 0] + fb * self.i[:, 1] + fc * self.i[:, 2])
+        tprev = self.ke * (fa * self.i[:, 0] + fb * self.i[:, 1] + fc * self.i[:, 2])
         for _ in range(self.hold):
             live = ~(term | trunc) & (self.phys < self.dur)
             if not live.any():
@@ -206,7 +211,7 @@ class WarpOuterBackend:
             d_a = wp.array(np.ascontiguousarray(volt), dtype=wp.float64, device="cuda:0")
             d_d = wp.array(np.ascontiguousarray(dist), dtype=wp.float64, device="cuda:0")
             wp.launch(fs.fullstep_once, dim=self.n,
-                      inputs=[self.d_s, d_a, d_d, wp.float64(self.tau_i), self.d_o], device="cuda:0")
+                      inputs=[self.d_s, d_a, d_d, wp.float64(self.tau_i), self.d_o, self.d_p], device="cuda:0")
             wp.synchronize()
             row = self.d_o.numpy()
             self.om, self.i, self.eps = row[:, 0].copy(), row[:, 1:4].copy(), row[:, 4].copy()
