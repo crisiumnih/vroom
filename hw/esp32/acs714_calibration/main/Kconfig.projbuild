@@ -1,0 +1,35 @@
+menu "ACS714 calibration utility"
+
+config ACS714_ADC_CHANNEL
+    int "ADC1 channel"
+    range 0 9
+    default 6
+    help
+        ADC1 channel connected to the midpoint of the 10 kOhm / 10 kOhm
+        ACS714 output divider. Verify the channel-to-GPIO mapping for the
+        selected ESP32 target before wiring the board.
+
+config ACS714_SAMPLE_COUNT
+    int "Samples per measurement"
+    range 100 10000
+    default 1000
+    help
+        Number of calibrated ADC samples averaged for each zero or current
+        point measurement.
+
+config ACS714_SAMPLE_PERIOD_US
+    int "Sample period in microseconds"
+    range 0 1000000
+    default 1000
+    help
+        Delay between samples during calibration. Zero means sample as fast
+        as the ADC driver permits.
+
+config ACS714_MONITOR_PERIOD_MS
+    int "ADC monitor period in milliseconds"
+    range 10 10000
+    default 100
+    help
+        Period between lines printed by the background ADC monitor command.
+
+endmenu

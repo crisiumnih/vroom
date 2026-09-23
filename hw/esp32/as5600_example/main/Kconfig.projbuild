@@ -1,0 +1,31 @@
+menu "AS5600 example"
+
+config AS5600_SDA_GPIO
+    int "I2C SDA GPIO"
+    default 21
+    range 0 48
+    help
+        GPIO connected to AS5600 SDA. Use an ESP32 GPIO that supports I2C.
+
+config AS5600_SCL_GPIO
+    int "I2C SCL GPIO"
+    default 22
+    range 0 48
+    help
+        GPIO connected to AS5600 SCL. Use an ESP32 GPIO that supports I2C.
+
+config AS5600_I2C_FREQ_HZ
+    int "I2C frequency in Hz"
+    default 400000
+    range 10000 1000000
+    help
+        I2C bus frequency. 400000 is a conservative starting point.
+
+config AS5600_SAMPLE_PERIOD_MS
+    int "Angle sample period in milliseconds"
+    default 100
+    range 1 10000
+    help
+        Delay between angle samples printed by the example.
+
+endmenu

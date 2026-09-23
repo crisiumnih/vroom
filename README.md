@@ -12,10 +12,13 @@ All RL pipeline, motor registry, run viz live here.
 - `ui/` — clean run viewer: status + key metrics + 3 graphs. No motor animation.
 - `configs/motors/` — new motors go here as YAML (assumed sim params, not measured).
 - `hw/arty/` — placeholder only. No flashing/export/quant (out of scope).
+- `hw/esp32/` — feature-branch bring-up projects for ACS714 calibration and AS5600 angle sensing.
 
 ## Scope
 
-Simulation only. No hardware, export, quantization without new instruction.
+Simulation remains the mainline scope. Hardware bring-up is isolated to the
+explicitly requested ESP32 feature branch and is not used by the simulation
+harness.
 Final learning: from-scratch motor interaction, no PI demos/imitation/shadow PI.
 See `AGENTS.md`.
 

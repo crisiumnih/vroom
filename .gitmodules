@@ -2,3 +2,6 @@
 	path = third_party/gym-electric-motor
 	url = https://github.com/crisiumnih/gym-electric-motor.git
 	branch = master
+[submodule "third_party/as5600_driver"]
+	path = third_party/as5600_driver
+	url = git@github.com:crisiumnih/as5600_driver.git
