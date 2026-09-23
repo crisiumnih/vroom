@@ -52,6 +52,7 @@ def test_iasa_obs_matches_reference():
     for w_, r_, c_ in frames:
         ref.record_history(st, w_, r_, c_)
     d["plant"][0] = torch.tensor([om, 0.05, -0.03, 0.02, eps], dtype=torch.float64)
+    d["sense"][0] = d["plant"][0].clone()  # N0: sensed mirror of true plant
     d["clk"][0] = 0
     d["dur"][0] = 10 ** 9
     d["bias"][0] = 0.2

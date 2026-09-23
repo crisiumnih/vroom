@@ -58,7 +58,8 @@ class WarpOuterBackend:
     def __init__(self, plant, inner_study, inner_model, scenarios, seed=0,
                  reward_shape="l2", failure=-1040.0, effort_scale=1.0,
                  memory_divisor=0.5, memory_cost=0.5, smooth_alpha=1.0,
-                 quad_weight=100.0):
+                 quad_weight=100.0, sense=None):
+        from warp_backend.sensing import N0
         self.plant = copy.deepcopy(plant)
         self.study = copy.deepcopy(inner_study)
         self.model = inner_model
@@ -76,6 +77,9 @@ class WarpOuterBackend:
         self.cur_lim = plant["controller"]["current_reference_limit_a"]
         self.n = None
         self.contract = contract
+        self.sense = sense if sense is not None else N0()
+        self.sense_rng = np.random.default_rng(seed)
+        self.sense_gen = None  # torch Generator, created on first device reset
 
     def reset(self, n, case=None, seed=None, plants=None):
         from warp_backend.rollout import build_tables
@@ -83,6 +87,7 @@ class WarpOuterBackend:
         self.n = n
         if seed is not None:
             self.rng = np.random.default_rng(seed)
+            self.sense_rng = np.random.default_rng(seed)
         self.lane_plants = resolve_plants(plants if plants is not None else self.plant, n)
         if case is None:
             self.case_ids = self.rng.integers(len(self.scenarios), size=n)
@@ -125,6 +130,12 @@ class WarpOuterBackend:
         self.d_p = wp.array(np.ascontiguousarray([p.row() for p in self.lane_plants]),
                             dtype=wp.float64, device="cuda:0")
         self.ke = np.array([p.k_e for p in self.lane_plants])
+        self.s_om = np.zeros(n)
+        self.s_i = np.zeros((n, 3))
+        self.s_eps = np.zeros(n)
+        self.s_ifilt = np.zeros((n, 2))
+        self.s_eps_hist = np.zeros((n, 11))
+        self.s_volt_prev = np.zeros((n, 2))
         return self._obs()
 
     def reset_env(self, j, seed=None):
@@ -143,6 +154,10 @@ class WarpOuterBackend:
         self.case_names[j] = cj.get("name", f"case{j}")
         self.lane_cases[j] = cj
         self.om[j], self.i[j], self.eps[j] = 0.0, np.zeros(3), 0.0
+        self.s_om[j], self.s_i[j], self.s_eps[j] = 0.0, np.zeros(3), 0.0
+        self.s_ifilt[j] = np.zeros(2)
+        self.s_eps_hist[j] = np.zeros(11)
+        self.s_volt_prev[j] = np.zeros(2)
         self.enc[j] = CurrentEncoder(self.contract, "direct")
         self.enc[j].reset()
         self.z[j], self.prev_cmd[j] = 0.0, 0.0
@@ -156,18 +171,50 @@ class WarpOuterBackend:
 
     def _single_obs(self, j):
         ref = self.ref_tab[int(min(self.phys[j], self.ref_tab.shape[0] - 1)), j]
-        isd, isq = abc_to_dq(self.i[j:j + 1], self.eps[j:j + 1])
-        v = np.array([self.om[j] / 25, ref / 25, (ref - self.om[j]) / 25,
+        isd, isq = abc_to_dq(self.s_i[j:j + 1], self.s_eps[j:j + 1])
+        v = np.array([self.s_om[j] / 25, ref / 25, (ref - self.s_om[j]) / 25,
                       float(isd[0]) / 4, float(isq[0]) / 4,
                       self.prev_cmd[j] / 1.5, self.z[j]], dtype=np.float32)
         assert np.isfinite(v).all()
         return np.clip(v, -1, 1)
 
+    def _sense_refresh_np(self, live):
+        """Post-physics sensed mirror (numpy twin of the device path).
+
+        Unlike the device backend, updates are UNMASKED: the numpy kernel
+        itself advances terminated lanes (documented defect), and the
+        reference backend must preserve its exact legacy observable behavior
+        (see test_truncation_freezes_terminal_obs). N0 stays bitwise legacy.
+        """
+        from warp_backend.sensing import sense_currents_numpy
+        cfg = self.sense
+        if cfg.i_noise > 0:
+            na = self.sense_rng.normal(0.0, cfg.i_noise, self.n)
+            nb = self.sense_rng.normal(0.0, cfg.i_noise, self.n)
+        else:
+            na = np.zeros(self.n)
+            nb = np.zeros(self.n)
+        fa = np.zeros(self.n)
+        fb = np.zeros(self.n)
+        for j in range(self.n):
+            a_, b_, _, filt = sense_currents_numpy(
+                cfg, self.i[j, 0], self.i[j, 1], self.i[j, 2], na[j], nb[j], self.s_ifilt[j])
+            fa[j], fb[j] = a_, b_
+            self.s_ifilt[j] = filt
+        fc = -(fa + fb)
+        self.s_eps_hist = np.roll(self.s_eps_hist, -1, axis=1)
+        self.s_eps_hist[:, -1] = self.eps + cfg.ang_off
+        self.s_om = self.om.copy()
+        self.s_i[:, 0] = fa
+        self.s_i[:, 1] = fb
+        self.s_i[:, 2] = fc
+        self.s_eps = self.s_eps_hist[:, -1 - cfg.ang_age].copy()
+
     def _obs(self):
         ar = np.arange(self.n)
         ref = self.ref_tab[np.clip(self.phys, 0, self.ref_tab.shape[0] - 1), ar]
-        isd, isq = abc_to_dq(self.i, self.eps)
-        v = np.stack([self.om / 25, ref / 25, (ref - self.om) / 25, isd / 4, isq / 4,
+        isd, isq = abc_to_dq(self.s_i, self.s_eps)
+        v = np.stack([self.s_om / 25, ref / 25, (ref - self.s_om) / 25, isd / 4, isq / 4,
                       self.prev_cmd / 1.5, self.z], axis=1).astype(np.float32)
         assert np.isfinite(v).all()
         return np.clip(v, -1, 1), ref
@@ -189,56 +236,63 @@ class WarpOuterBackend:
         trunc = np.zeros(self.n, dtype=bool)
         fail = [None] * self.n
         counts = np.zeros(self.n, dtype=int)
-        fa, fb, fc = bemf_shape(self.eps)
-        tprev = self.ke * (fa * self.i[:, 0] + fb * self.i[:, 1] + fc * self.i[:, 2])
+        fa, fb, fc = bemf_shape(self.s_eps)
+        tprev = self.ke * (fa * self.s_i[:, 0] + fb * self.s_i[:, 1] + fc * self.s_i[:, 2])
         for _ in range(self.hold):
             live = ~(term | trunc) & (self.phys < self.dur)
             if not live.any():
                 break
             dist = self.dist_tab[np.clip(self.phys, 0, self.dist_tab.shape[0] - 1), np.arange(self.n)]
-            isd, isq = abc_to_dq(self.i, self.eps)
-            # batched inner forward
+            isd, isq = abc_to_dq(self.s_i, self.s_eps)
+            # batched inner forward (sensor space; trip stays on true state)
             obatch = np.stack([e.encode(
                 {"i_sd": float(d), "i_sq": float(q), "omega": float(o), "epsilon": float(e_)},
                 np.array([0.0, float(c)]) * min(1.0, self.cur_lim / max(abs(float(c)), 1e-30)))
-                for e, d, q, o, e_, c in zip(self.enc, isd, isq, self.om, self.eps, cmdf)])
+                for e, d, q, o, e_, c in zip(self.enc, isd, isq, self.s_om, self.s_eps, cmdf)])
             with torch.no_grad():
                 raw = self.model.actor.forward(torch.as_tensor(obatch, device="cuda")).cpu().numpy()
             volt = np.zeros((self.n, 2))
             for j in np.where(live)[0]:
                 applied, _, _ = self.enc[j].action(raw[j], {"i_sd": float(isd[j]), "i_sq": float(isq[j])})
                 volt[j] = applied
-            d_a = wp.array(np.ascontiguousarray(volt), dtype=wp.float64, device="cuda:0")
+            if self.sense.volt_delay:
+                u_app = self.s_volt_prev.copy()
+                self.s_volt_prev = volt.copy()
+            else:
+                u_app = volt
+            d_a = wp.array(np.ascontiguousarray(u_app), dtype=wp.float64, device="cuda:0")
             d_d = wp.array(np.ascontiguousarray(dist), dtype=wp.float64, device="cuda:0")
             wp.launch(fs.fullstep_once, dim=self.n,
                       inputs=[self.d_s, d_a, d_d, wp.float64(self.tau_i), self.d_o, self.d_p], device="cuda:0")
             wp.synchronize()
             row = self.d_o.numpy()
             self.om, self.i, self.eps = row[:, 0].copy(), row[:, 1:4].copy(), row[:, 4].copy()
-            tq = row[:, 5]
             self.phys[live] += 1
             counts[live] += 1
             peak = np.abs(self.i).max(axis=1)
-            isd2, isq2 = abc_to_dq(self.i, self.eps)
+            self._sense_refresh_np(live)
+            s_isd, s_isq = abc_to_dq(self.s_i, self.s_eps)
+            s_fa, s_fb, s_fc = bemf_shape(self.s_eps)
+            s_tq = self.ke * (s_fa * self.s_i[:, 0] + s_fb * self.s_i[:, 1] + s_fc * self.s_i[:, 2])
             t_term = peak > 4.0
             term[live] = t_term[live]
             for j in np.where(live)[0]:
                 if t_term[j]:
                     fail[j] = "phase_current_trip"
-            l2speed = 4.0 * np.clip((ref0[live] - self.om[live]) / 25, -1, 1) ** 2
+            l2speed = 4.0 * np.clip((ref0[live] - self.s_om[live]) / 25, -1, 1) ** 2
             if self.shape == "l1":
-                en = np.clip((ref0[live] - self.om[live]) / 25, -1, 1)
+                en = np.clip((ref0[live] - self.s_om[live]) / 25, -1, 1)
                 l2speed = l2speed + (4.0 * (np.abs(en) - en ** 2))
             elif self.shape == "qeff":
                 # Quadratic tracking (thesis Eq.20 style): qw matched so cost
                 # at en=0.04 equals the L1 cost there; smooth gradient at zero.
-                en = np.clip((ref0[live] - self.om[live]) / 25, -1, 1)
+                en = np.clip((ref0[live] - self.s_om[live]) / 25, -1, 1)
                 l2speed = self.qw * en ** 2
             rewards[live] += -(l2speed
-                + 0.5 * np.clip(np.hypot(isd2[live], isq2[live]) / 4, 0, 1) ** 2
+                + 0.5 * np.clip(np.hypot(s_isd[live], s_isq[live]) / 4, 0, 1) ** 2
                 + self.effort * 0.1 * np.clip(delta[live], 0, 1) ** 2 + self.mem_cost * z0[live] ** 2
-                + self.effort * 0.1 * np.clip(np.abs(tq[live] - tprev[live]) / 0.1, 0, 1) ** 2)
-            tprev = tq.copy()
+                + self.effort * 0.1 * np.clip(np.abs(s_tq[live] - tprev[live]) / 0.1, 0, 1) ** 2)
+            tprev = s_tq.copy()
         cnt = np.maximum(counts, 1)
         rewards = np.where(counts > 0, rewards / cnt, 0.0)
         rewards[term] = self.failure

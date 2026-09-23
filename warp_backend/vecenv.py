@@ -10,12 +10,13 @@ class WarpOuterVecEnv(VecEnv):
     def __init__(self, plant, inner_study, inner_model, case, n_envs=8, seed=0,
                  reward_shape="l2", failure=-1040.0, effort_scale=1.0, cases=None,
                  memory_divisor=0.5, memory_cost=0.5, smooth_alpha=1.0, quad_weight=100.0,
-                 backend="numpy", control='direct', plants=None):
+                 backend="numpy", control='direct', plants=None, sense=None):
         """backend="numpy" preserves the reference rollout (fyp runner default).
         backend="device" uses the device-resident loop (same contract).
         control='iasa' selects the 19-observation two-output v3 contract.
         plants: optional per-lane plant list (master_plan PR1); None broadcasts
-        plant. Per-episode motor draws are the runner's job."""
+        plant. Per-episode motor draws are the runner's job.
+        sense: SenseConfig (master_plan PR3); None means N0 (legacy-exact)."""
         self.control = control
         self.plants = plants
         self.cases = [copy.deepcopy(c) for c in (cases or [case])]
@@ -26,7 +27,7 @@ class WarpOuterVecEnv(VecEnv):
                                        reward_shape=reward_shape, failure=failure,
                                        effort_scale=effort_scale, memory_divisor=memory_divisor,
                                        memory_cost=memory_cost, smooth_alpha=smooth_alpha,
-                                       quad_weight=quad_weight, control=control)
+                                       quad_weight=quad_weight, control=control, sense=sense)
         elif backend == "numpy":
             if control != 'direct':
                 raise ValueError('numpy reference supports direct control only')
@@ -34,7 +35,7 @@ class WarpOuterVecEnv(VecEnv):
                                        reward_shape=reward_shape, failure=failure,
                                        effort_scale=effort_scale, memory_divisor=memory_divisor,
                                        memory_cost=memory_cost, smooth_alpha=smooth_alpha,
-                                       quad_weight=quad_weight)
+                                       quad_weight=quad_weight, sense=sense)
         else:
             raise ValueError(f"Unknown rollout backend {backend!r}")
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
