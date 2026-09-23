@@ -109,6 +109,11 @@ class FastOuterBackend(WarpOuterBackend):
         self.n = n
         if seed is not None:
             self.rng = np.random.default_rng(seed)
+        import torch
+        if self.sense_gen is None:
+            self.sense_gen = torch.Generator(device='cuda')
+        if seed is not None:
+            self.sense_gen.manual_seed(seed)
         self.lane_plants = resolve_plants(plants if plants is not None else self.plant, n)
         if case is None:
             # Independent scenario per lane (training coverage).
@@ -166,6 +171,10 @@ class FastOuterBackend(WarpOuterBackend):
         d["cnt"] = torch.zeros((n,), dtype=torch.int64, device=dev)
         d["tprev"] = torch.zeros((n,), dtype=torch.float64, device=dev)
         d["phys_cum"] = np.zeros(n, dtype=int)
+        d["sense"] = torch.zeros((n, 5), dtype=torch.float64, device=dev)
+        d["ifilt"] = torch.zeros((n, 2), dtype=torch.float64, device=dev)
+        d["eps_hist"] = torch.zeros((n, 11), dtype=torch.float64, device=dev)
+        d["volt_prev"] = torch.zeros((n, 2), dtype=torch.float64, device=dev)
         d["params"] = torch.as_tensor(np.ascontiguousarray([p.row() for p in self.lane_plants]),
                                       dtype=torch.float64, device=dev)
         d["ke"] = d["params"][:, 3].clone()
@@ -208,6 +217,10 @@ class FastOuterBackend(WarpOuterBackend):
         self.case_names[j] = cj.get("name", f"case{j}")
         self.lane_cases[j] = cj
         d["plant"][j].zero_()
+        d["sense"][j].zero_()
+        d["ifilt"][j].zero_()
+        d["eps_hist"][j].zero_()
+        d["volt_prev"][j].zero_()
         d["hist"][j].zero_()
         d["prev"][j].zero_()
         d["cmd_f"][j] = 0.0
@@ -250,7 +263,7 @@ class FastOuterBackend(WarpOuterBackend):
 
     def _assemble_obs(self):
         d = self._dev
-        st = torch.where(d["done"].unsqueeze(1), d["snap"], d["plant"])
+        st = d["sense"]  # sensor space; dead lanes frozen at last sensed frame
         om, iabc, eps = st[:, 0], st[:, 1:4], st[:, 4]
         clk = d["clk"].clamp(max=d["dur"])
         ref = d["ref_tab"][clk, torch.arange(self.n, device=clk.device)]
@@ -296,9 +309,9 @@ class FastOuterBackend(WarpOuterBackend):
                 d["live"].copy_(live.to(torch.int32))
                 dist = d["dist_tab"][d["clk"].clamp(max=d["dur"]), ar]
                 d["dist_b"].copy_(dist)
-                i_f32 = d["plant"][:, 1:4].to(torch.float32)
-                e_f32 = d["plant"][:, 4].to(torch.float32)
-                o_f32 = d["plant"][:, 0].to(torch.float32)
+                i_f32 = d["sense"][:, 1:4].to(torch.float32)
+                e_f32 = d["sense"][:, 4].to(torch.float32)
+                o_f32 = d["sense"][:, 0].to(torch.float32)
                 volt, branches, isd, isq = _inner_c(
                     i_f32, e_f32, cmdf, d["prev"], d["hist"], o_f32,
                     self.cur_lim, self.n, self.H, self.model.actor, self.ANL)
@@ -307,14 +320,21 @@ class FastOuterBackend(WarpOuterBackend):
                 newdq = torch.stack([isd, isq], dim=1)
                 rolled[:, -1, :] = torch.where(live.view(-1, 1), newdq, rolled[:, -1, :])
                 d["hist"].copy_(torch.where(live.view(-1, 1, 1), rolled, d["hist"]))
-                d["volt"].copy_(volt.to(torch.float64))
+                if self.sense.volt_delay:
+                    # Transport delay: physics sees the previous command.
+                    u_app = d["volt_prev"].clone()
+                    d["volt_prev"].copy_(torch.where(live.view(-1, 1), volt.to(torch.float64),
+                                                     d["volt_prev"]))
+                    d["volt"].copy_(u_app)
+                else:
+                    d["volt"].copy_(volt.to(torch.float64))
                 wp.launch(fs.fullstep_masked, dim=self.n,
                           inputs=[d["w_plant"], d["w_volt"], d["w_dist"], d["w_live"],
                                   wp.float64(self.tau_i), d["w_out"], d["w_params"]],
                           stream=self.wstream)
                 # Stream-ordered: torch observes kernel output on the same stream.
-                om_n, i_n, tq = d["out"][:, 0], d["out"][:, 1:4], d["out"][:, 5]
-                isd2, isq2 = _dq_f64(i_n, d["out"][:, 4])
+                # Trip uses TRUE currents (protection); control/reward use sensed.
+                om_n, i_n = d["out"][:, 0], d["out"][:, 1:4]
                 ab = i_n.abs()
                 tripped = ((ab[:, 0] > 4.0) | (ab[:, 1] > 4.0) | (ab[:, 2] > 4.0)) & live
                 first = tripped & (~d["done"])
@@ -323,15 +343,19 @@ class FastOuterBackend(WarpOuterBackend):
                 d["plant"].copy_(torch.where(live.view(-1, 1), d["out"][:, :5], d["plant"]))
                 d["clk"] += live.to(torch.int64)
                 d["cnt"] += live.to(torch.int64)
+                self._sense_refresh(live)
+                om_s, i_s, eps_s = self._sensed_post()
+                isd_s, isq_s = _dq_f64(i_s, eps_s)
+                tq_s = self._torque_of(d["sense"])
                 if self.shape == 'candidate':
                     # Per-outer command costs are constant across inner samples;
                     # adding them per sample then taking the mean is exact.
                     d["rew"] += live.to(torch.float64) * (-_candidate_reward_c(
-                        ref0, om_n, c_now, c_prev, aP, aI))
+                        ref0, om_s, c_now, c_prev, aP, aI))
                 else:
                     d["rew"] += live.to(torch.float64) * (-self._reward_terms(
-                        ref0, om_n, isd2, isq2, delta, z0, tq, d["tprev"]))
-                d["tprev"].copy_(tq)
+                        ref0, om_s, isd_s, isq_s, delta, z0, tq_s, d["tprev"]))
+                d["tprev"].copy_(tq_s)
                 d["done"] |= tripped
             cnt = d["cnt"].clamp(min=1)
             rew = torch.where(d["cnt"] > 0, d["rew"] / cnt.to(torch.float64),
@@ -369,6 +393,39 @@ class FastOuterBackend(WarpOuterBackend):
                   "scenario": self.case_names[j]}
                  for j, (f, p, k) in enumerate(zip(fail_h, self.phys, delta_h))]
         return obs, rew_h, term_h, trunc_h, infos
+
+    def _sense_refresh(self, live):
+        """Post-physics sensed mirror. N0 is exactly identity (legacy)."""
+        from warp_backend.sensing import sense_currents_torch
+        import torch
+        d, cfg = self._dev, self.sense
+        dev = d["plant"].device
+        if self.sense_gen is None:
+            self.sense_gen = torch.Generator(device='cuda')
+        n = self.n
+        if cfg.i_noise > 0:
+            na = torch.empty((n,), dtype=torch.float64, device=dev).normal_(
+                0.0, cfg.i_noise, generator=self.sense_gen)
+            nb = torch.empty((n,), dtype=torch.float64, device=dev).normal_(
+                0.0, cfg.i_noise, generator=self.sense_gen)
+        else:
+            na = torch.zeros((n,), dtype=torch.float64, device=dev)
+            nb = torch.zeros((n,), dtype=torch.float64, device=dev)
+        sa, sb, sc = sense_currents_torch(cfg, torch, d["plant"][:, 1], d["plant"][:, 2],
+                                          d["plant"][:, 3], na, nb, d["ifilt"])
+        lv = live.view(-1, 1)
+        d["ifilt"].copy_(torch.where(lv, torch.stack([sa, sb], dim=1), d["ifilt"]))
+        new_hist = torch.roll(d["eps_hist"], shifts=-1, dims=1)
+        new_hist[:, -1] = d["plant"][:, 4] + cfg.ang_off
+        d["eps_hist"].copy_(torch.where(lv, new_hist, d["eps_hist"]))
+        eps_s = d["eps_hist"][:, -1 - cfg.ang_age]
+        d["sense"].copy_(torch.where(
+            lv, torch.stack([d["plant"][:, 0], sa, sb, sc, eps_s], dim=1), d["sense"]))
+
+    def _sensed_post(self):
+        """Post-step sensed om/currents/eps for reward/torque (sensor space)."""
+        d = self._dev
+        return d["sense"][:, 0], d["sense"][:, 1:4], d["sense"][:, 4]
 
     def _torque_of(self, plant):
         om, i, eps = plant[:, 0], plant[:, 1:4], plant[:, 4]
@@ -408,7 +465,7 @@ class FastOuterBackend(WarpOuterBackend):
     def _assemble_iasa_obs(self):
         """19-dim v3 observation: 10 base + speed/error/cmd at 5/10/20 ms lags."""
         d = self._dev
-        st = torch.where(d["done"].unsqueeze(1), d["snap"], d["plant"])
+        st = d["sense"]  # sensor space; dead lanes frozen at last sensed frame
         om, iabc, eps = st[:, 0], st[:, 1:4], st[:, 4]
         clk = d["clk"].clamp(max=d["dur"])
         ref = d["ref_tab"][clk, torch.arange(self.n, device=clk.device)]
@@ -429,8 +486,7 @@ class FastOuterBackend(WarpOuterBackend):
     def _record_iasa_history(self):
         """Record current frame; called after obs assembly each outer step."""
         d = self._dev
-        st = torch.where(d["done"].unsqueeze(1), d["snap"], d["plant"])
-        om = st[:, 0]
+        om = d["sense"][:, 0]  # measured speed history, not ground truth
         clk = d["clk"].clamp(max=d["dur"])
         ref = d["ref_tab"][clk, torch.arange(self.n, device=clk.device)]
         d["h_spd"].copy_(torch.roll(d["h_spd"], shifts=-1, dims=1))
