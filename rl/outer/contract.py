@@ -9,7 +9,12 @@ Versions:
 - bldc-outer-speed-v1: 7-obs scalar absolute-current actor, z divisor 0.5.
 - bldc-outer-speed-v2: v1 with memory divisor/cost parameters (fix screens).
 - bldc-outer-speed-v3: IASA two-output TD3 (direct + integral accumulator),
-  19 observations, command filter state, candidate reward (plan/plan.md sect.2-3).
+  19 observations, command filter state, L1-family reward (iasa stage).
+- bldc-outer-speed-v4: v3 action/observation arithmetic unchanged, candidate
+  reward (plan/plan.md sect.3): quadratic+log tracking per inner sample, no
+  current-magnitude or torque-difference costs, command/increment/output
+  costs per outer decision. Reward change alone introduced; compare v3/v4
+  arms to isolate it.
 """
 import hashlib
 import json
@@ -17,6 +22,7 @@ import json
 VERSION_V1 = 'bldc-outer-speed-v1'
 VERSION_V2 = 'bldc-outer-speed-v2'
 VERSION_V3 = 'bldc-outer-speed-v3'
+VERSION_V4 = 'bldc-outer-speed-v4'
 
 # v3 action/state constants (plan sect.2; starting choices, not optima).
 V3_DIRECT_GAIN_A = 1.5
@@ -65,7 +71,14 @@ def describe(version):
         return {'version': version, 'obs': V3_OBS_ORDER,
                 'action_gains': {'direct': V3_DIRECT_GAIN_A, 'increment': V3_INCREMENT_GAIN_A},
                 'command_limit': V3_COMMAND_LIMIT_A, 'antiwindup': V3_ANTIWINDUP_GAIN,
-                'filter_alpha': V3_FILTER_ALPHA, 'reward': V3_REWARD, 'outputs': 2, **TIMING}
+                'filter_alpha': V3_FILTER_ALPHA, 'reward': V3_REWARD, 'reward_shape': 'l1',
+                'outputs': 2, **TIMING}
+    if version == VERSION_V4:
+        return {'version': version, 'obs': V3_OBS_ORDER,
+                'action_gains': {'direct': V3_DIRECT_GAIN_A, 'increment': V3_INCREMENT_GAIN_A},
+                'command_limit': V3_COMMAND_LIMIT_A, 'antiwindup': V3_ANTIWINDUP_GAIN,
+                'filter_alpha': V3_FILTER_ALPHA, 'reward': V3_REWARD, 'reward_shape': 'candidate',
+                'outputs': 2, **TIMING}
     raise ValueError(f'Unknown contract {version}')
 
 

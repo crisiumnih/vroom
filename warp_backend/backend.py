@@ -64,7 +64,7 @@ class WarpOuterBackend:
         self.model = inner_model
         self.scenarios = copy.deepcopy(scenarios)
         self.rng = np.random.default_rng(seed)
-        assert reward_shape in ("l2", "l1", "qeff")
+        assert reward_shape in ("l2", "l1", "qeff", "candidate")
         self.shape, self.failure = reward_shape, float(failure)
         self.effort = float(effort_scale)
         self.mem_div, self.mem_cost = float(memory_divisor), float(memory_cost)
