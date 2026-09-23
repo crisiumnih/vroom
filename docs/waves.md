@@ -13,4 +13,8 @@ step through the real GEM `schedule_value`).
   speed — never shared labels.
 - `scale_waves(amp=0.9, time=1.25)` is the validation transform (sect.5).
 
+![speed cases](figs/waves_speed.png)
+![disturbances](figs/waves_dist.png)
+![current cases](figs/waves_current.png)
+
 Repro: `.venv/bin/python -W ignore -m pytest warp_backend/test_waves.py -q`
