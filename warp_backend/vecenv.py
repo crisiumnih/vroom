@@ -10,11 +10,14 @@ class WarpOuterVecEnv(VecEnv):
     def __init__(self, plant, inner_study, inner_model, case, n_envs=8, seed=0,
                  reward_shape="l2", failure=-1040.0, effort_scale=1.0, cases=None,
                  memory_divisor=0.5, memory_cost=0.5, smooth_alpha=1.0, quad_weight=100.0,
-                 backend="numpy", control='direct'):
+                 backend="numpy", control='direct', plants=None):
         """backend="numpy" preserves the reference rollout (fyp runner default).
         backend="device" uses the device-resident loop (same contract).
-        control='iasa' selects the 19-observation two-output v3 contract."""
+        control='iasa' selects the 19-observation two-output v3 contract.
+        plants: optional per-lane plant list (master_plan PR1); None broadcasts
+        plant. Per-episode motor draws are the runner's job."""
         self.control = control
+        self.plants = plants
         self.cases = [copy.deepcopy(c) for c in (cases or [case])]
         self.rng = np.random.default_rng(seed)
         if backend == "device":
@@ -35,7 +38,7 @@ class WarpOuterVecEnv(VecEnv):
         else:
             raise ValueError(f"Unknown rollout backend {backend!r}")
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
-        out = self.be.reset(n_envs, case=self.case, seed=seed)
+        out = self.be.reset(n_envs, case=self.case, seed=seed, plants=plants)
         obs = out[0] if isinstance(out, tuple) else out
         if control == 'iasa':
             assert obs.shape[1] == 19
@@ -46,9 +49,10 @@ class WarpOuterVecEnv(VecEnv):
         )
         self._actions = None
 
-    def reset(self) -> VecEnvObs:
+    def reset(self, plants=None) -> VecEnvObs:
         self.case = self.cases[int(self.rng.integers(len(self.cases)))]
-        out = self.be.reset(self.num_envs, case=self.case)
+        out = self.be.reset(self.num_envs, case=self.case,
+                            plants=plants if plants is not None else self.plants)
         obs = out[0] if isinstance(out, tuple) else out
         return obs.astype(np.float32)
 

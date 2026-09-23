@@ -10,6 +10,7 @@ import numpy as np
 import warp as wp
 
 from warp_backend import fullstep as fs
+from warp_backend.plant import LEGACY_L0
 
 wp.init()
 import os
@@ -35,8 +36,10 @@ def warp_run(actions, dists):
     d_a = wp.array(actions, dtype=wp.float64, device="cuda:0")
     d_d = wp.array(dists, dtype=wp.float64, device="cuda:0")
     d_tr = wp.zeros((STEPS, n, 6), dtype=wp.float64, device="cuda:0")
+    d_p = wp.array(np.ascontiguousarray([LEGACY_L0.row() for _ in range(n)]),
+                   dtype=wp.float64, device="cuda:0")
     wp.launch(fs.fullstep_kernel, dim=n,
-              inputs=[d_s, d_a, d_d, wp.float64(DT), STEPS, d_tr], device="cuda:0")
+              inputs=[d_s, d_a, d_d, wp.float64(DT), STEPS, d_p, d_tr], device="cuda:0")
     wp.synchronize()
     return d_tr.numpy()
 

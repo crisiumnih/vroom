@@ -39,36 +39,23 @@ if GEM_ROOT not in sys.path:
 from benchmarks.bldc.environment import schedule_value
 from warp_backend import fullstep as fs
 from warp_backend.backend import WarpOuterBackend
+from warp_backend.plant import MotorParams, resolve_plants
 
 wp.init()
 
 SQRT3_2 = 0.8660254037844386
-NOMINAL = dict(p=21, r_s=85e-3, l_s=50e-6, k_e=0.0955, supply_v=44.4,
-               j_total=0.003, load_a=0.01, load_b=0.01, load_c=0.0,
-               tau_s=1e-4, ref_limit_a=1.5)
 
 
 def validate_plant(plant):
-    """Reject configurations the nominal FP64 kernel does not implement."""
-    m, lo = plant["motor"], plant["load"]
-    checks = {
-        "motor.p": (m["p"], NOMINAL["p"]),
-        "motor.r_s": (m["r_s"], NOMINAL["r_s"]),
-        "motor.l_s": (m["l_s"], NOMINAL["l_s"]),
-        "motor.k_e": (m["k_e"], NOMINAL["k_e"]),
-        "supply_v": (plant["supply_v"], NOMINAL["supply_v"]),
-        "j_rotor+j_load": (m["j_rotor"] + lo["j_load"], NOMINAL["j_total"]),
-        "load.a": (lo["a"], NOMINAL["load_a"]),
-        "load.b": (lo["b"], NOMINAL["load_b"]),
-        "load.c": (lo["c"], NOMINAL["load_c"]),
-        "tau_s": (plant["tau_s"], NOMINAL["tau_s"]),
-        "current_reference_limit_a": (plant["controller"]["current_reference_limit_a"],
-                                      NOMINAL["ref_limit_a"]),
-    }
-    bad = [k for k, (got, want) in checks.items()
-           if not np.isclose(got, want, rtol=1e-9, atol=0.0)]
-    if bad:
-        raise ValueError(f"Unsupported plant for nominal kernel: {bad}")
+    """Structural check: convertible to MotorParams (any physical values).
+
+    The nominal-only restriction is gone (master_plan PR1); per-lane values
+    flow through the params table built in reset().
+    """
+    if isinstance(plant, MotorParams):
+        return plant.validated()
+    from warp_backend.plant import from_legacy_dict
+    return from_legacy_dict(plant)
 
 
 def build_tables(case, tau_i, dur):
@@ -118,10 +105,11 @@ class FastOuterBackend(WarpOuterBackend):
         self.tstream = torch.cuda.ExternalStream(int(handle))
         self._dev = None
 
-    def reset(self, n, case=None, seed=None):
+    def reset(self, n, case=None, seed=None, plants=None):
         self.n = n
         if seed is not None:
             self.rng = np.random.default_rng(seed)
+        self.lane_plants = resolve_plants(plants if plants is not None else self.plant, n)
         if case is None:
             # Independent scenario per lane (training coverage).
             self.case_ids = self.rng.integers(len(self.scenarios), size=n)
@@ -178,6 +166,9 @@ class FastOuterBackend(WarpOuterBackend):
         d["cnt"] = torch.zeros((n,), dtype=torch.int64, device=dev)
         d["tprev"] = torch.zeros((n,), dtype=torch.float64, device=dev)
         d["phys_cum"] = np.zeros(n, dtype=int)
+        d["params"] = torch.as_tensor(np.ascontiguousarray([p.row() for p in self.lane_plants]),
+                                      dtype=torch.float64, device=dev)
+        d["ke"] = d["params"][:, 3].clone()
         if self.control == 'iasa':
             # Initialize lag histories with the initial measured frame (raw units).
             r0 = ref_tab[0]
@@ -188,6 +179,7 @@ class FastOuterBackend(WarpOuterBackend):
         d["w_dist"] = wp.from_torch(d["dist_b"])
         d["w_out"] = wp.from_torch(d["out"])
         d["w_live"] = wp.from_torch(d["live"])
+        d["w_params"] = wp.from_torch(d["params"])
         self._dev = d
         # Host mirrors kept only for infos/diagnostics, not for stepping.
         self.phys = np.zeros(n, dtype=int)
@@ -318,7 +310,7 @@ class FastOuterBackend(WarpOuterBackend):
                 d["volt"].copy_(volt.to(torch.float64))
                 wp.launch(fs.fullstep_masked, dim=self.n,
                           inputs=[d["w_plant"], d["w_volt"], d["w_dist"], d["w_live"],
-                                  wp.float64(self.tau_i), d["w_out"]],
+                                  wp.float64(self.tau_i), d["w_out"], d["w_params"]],
                           stream=self.wstream)
                 # Stream-ordered: torch observes kernel output on the same stream.
                 om_n, i_n, tq = d["out"][:, 0], d["out"][:, 1:4], d["out"][:, 5]
@@ -385,7 +377,8 @@ class FastOuterBackend(WarpOuterBackend):
         fa = _trap(_wrap(th + sh))
         fb = _trap(_wrap(th - 2 * np.pi / 3 + sh))
         fc = _trap(_wrap(th - 4 * np.pi / 3 + sh))
-        return 0.0955 * (fa * i[:, 0] + fb * i[:, 1] + fc * i[:, 2])
+        ke = self._dev["ke"].to(plant.dtype)
+        return ke * (fa * i[:, 0] + fb * i[:, 1] + fc * i[:, 2])
 
     def _reward_terms(self, ref, om, isd, isq, delta, z0, tq, tprev):
         mem = 0.0 if self.control == 'iasa' else self.mem_cost
