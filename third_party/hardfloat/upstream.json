@@ -1,0 +1,21 @@
+{
+  "upstream": "https://www.jhauser.us/arithmetic/HardFloat-1.zip",
+  "release": "HardFloat Release 1, 2019-07-29",
+  "archive_sha256": "6b3757c9fbfa2230c6a2b84605e39372cb589dd7500e979c4f0b8ecc8a03b14b",
+  "specialization": "RISCV",
+  "files": {
+    "COPYING.txt": "c791a6bdcef33feddaa0cb7ab99c233fb63d93bb385f06d58f9f1b9a8182b418",
+    "README.txt": "27cb3cc402c14dbfa9fa7755f3aa03116919b8876134f60bf4c6b6f3dc12e3ca",
+    "source/HardFloat_consts.vi": "53d4c22ee61b9b81bc763330959327914d8e1952e15f3f66361d1a4e34e2802f",
+    "source/HardFloat_localFuncs.vi": "e6e8d53f362dc2c9fe14c9b0edbc73bc6367d8899276b3384e947a17029b5d50",
+    "source/HardFloat_primitives.v": "5a1d0823a066395eda8191b3a556c414e6120b8085ff43ce383980d84af47f9f",
+    "source/HardFloat_rawFN.v": "353cad0b733c601f5c2449dc75f1ddefa34dc5c2466ac82540302303899fe355",
+    "source/isSigNaNRecFN.v": "77e37250ec9c18c4484c23eda48bfcf7df8dec1a3d3b2c1a1e5804386a25de8b",
+    "source/recFNToFN.v": "62d42a8f004f00f9a688c5e45302ceff22148313b3602840e5d05a13e9391e96",
+    "source/fNToRecFN.v": "7aca940370a4ecf1b52774cec62e90252d090f20a4acd5f577cf88565266426c",
+    "source/mulRecFN.v": "5a6a263dcde9f38f0fabef87ceb41e1bdff63c46d151c7c65e404467354bee43",
+    "source/addRecFN.v": "15fb5387ab0deff63670ed144189e9f263c61ffc909d06697974c49d11ba5dc3",
+    "source/RISCV/HardFloat_specialize.vi": "c252f7e1638f63838f66e6f469bf86fdec0e4396f6b0be69172623a26519307c",
+    "source/RISCV/HardFloat_specialize.v": "de4442606d2c51bf30c0476d289fa7f955273c8bb58c1484f0e745b76bc8d316"
+  }
+}
