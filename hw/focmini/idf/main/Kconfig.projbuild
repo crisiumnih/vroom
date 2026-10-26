@@ -1,0 +1,39 @@
+menu "FOCMini motor setup"
+
+config FOCMINI_BUS_MV
+	int "Measured motor supply voltage (mV)"
+	 range 0 30000
+	 default 0
+	 help
+		Zero disarms the motor. Enter the measured supply voltage only after wiring review.
+
+config FOCMINI_POLE_PAIRS
+	int "Verified motor pole pairs"
+	 range 0 64
+	 default 0
+	 help
+		Zero disarms the motor. This is pole pairs, not the number of poles.
+
+config FOCMINI_VOLTAGE_LIMIT_MV
+	int "Initial motor phase amplitude limit (mV)"
+	 range 100 30000
+	 default 500
+	 help
+		This is the motor phase amplitude, not the driver's full bus-voltage range.
+		Centered sine modulation requires twice this amplitude to fit within the bus.
+		Voltage-mode control cannot enforce current.
+
+config FOCMINI_VELOCITY_LIMIT_MRAD_S
+	int "Velocity command limit (millirad/s, maximum 5 rad/s)"
+	 range 1 5000
+	 default 5000
+	 help
+		Initial bring-up limit is 5 rad/s (about 48 RPM), not a measured motor rating.
+
+config FOCMINI_USE_AS5600
+	bool "Use AS5600 closed-loop velocity mode"
+	default n
+	help
+		Leave disabled for first open-loop bring-up. Enable only after encoder wiring and magnet alignment.
+
+endmenu
