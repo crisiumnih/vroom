@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/figs/kinloop-hero.png" alt="kinloop: one learned controller for a whole family of BLDC motors" width="100%">
+  <img src="docs/figs/kinloop-hero.png" alt="kinloop: one learned controller for a whole family of BLDC motors" width="75%">
 </p>
 
 <p align="center">
