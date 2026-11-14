@@ -1,6 +1,13 @@
 __pycache__/
 *.pyc
 .venv/
+.pio/
+hw/focmini/idf/build/
+hw/focmini/idf/managed_components/
+hw/focmini/idf/dependencies.lock
+hw/focmini/idf/sdkconfig
+hw/focmini/idf/sdkconfig.old
+hw/focmini/idf/sdkconfig.esp32dev_*
 results/
 *.zip
 *.pkl
