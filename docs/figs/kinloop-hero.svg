@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 420" width="1280" height="420" role="img" aria-labelledby="t d">
+  <title id="t">kinloop</title>
+  <desc id="d">One shared learned controller, drawn as a smiling chip, connected to four smiling BLDC motors of different sizes that stand for a family of related motors.</desc>
+  <defs>
+    <symbol id="motor" viewBox="0 0 120 100">
+      <ellipse cx="54" cy="94" rx="44" ry="5" fill="#1f2a44" opacity=".08"/>
+      <g fill="none" stroke-width="2.6" stroke-linecap="round"><path d="M92 76 q10 2 16 10" stroke="#e34948"/><path d="M90 80 q9 3 13 11" stroke="#eda100"/><path d="M87 83 q7 4 9 11" stroke="#1f2a44"/></g>
+      <rect x="10" y="30" width="88" height="54" rx="8" fill="currentColor"/>
+      <ellipse cx="54" cy="84" rx="44" ry="10" fill="currentColor"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="currentColor"/>
+      <rect x="10" y="38" width="88" height="5" fill="#1f2a44" opacity=".12"/>
+      <rect x="10" y="74" width="88" height="4" fill="#1f2a44" opacity=".10"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="#fff" opacity=".38"/>
+      <g fill="#1f2a44" opacity=".25"><circle cx="34" cy="30" r="1.8"/><circle cx="74" cy="30" r="1.8"/><circle cx="54" cy="37" r="1.8"/></g>
+      <rect x="49" y="13" width="10" height="16" rx="4" fill="#c9ced8"/>
+      <ellipse cx="54" cy="29" rx="10" ry="3.6" fill="#fff" opacity=".9"/>
+      <ellipse cx="33" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <ellipse cx="75" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <circle cx="43" cy="55" r="4.4" fill="#1f2a44"/><circle cx="65" cy="55" r="4.4" fill="#1f2a44"/>
+      <circle cx="44.4" cy="53.6" r="1.4" fill="#fff"/><circle cx="66.4" cy="53.6" r="1.4" fill="#fff"/>
+      <path d="M47 65 Q54 71 61 65" fill="none" stroke="#1f2a44" stroke-width="2.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="spark" viewBox="-10 -10 20 20"><path d="M0 -10 Q1.5 -1.5 10 0 Q1.5 1.5 0 10 Q-1.5 1.5 -10 0 Q-1.5 -1.5 0 -10Z" fill="currentColor"/></symbol>
+  </defs>
+  <rect x="2" y="2" width="1276" height="416" rx="30" fill="#fffaf2" stroke="#f1e6d3" stroke-width="3"/>
+  <g font-family="ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, sans-serif">
+    <text x="72" y="172" font-size="92" font-weight="800" fill="#1f2a44" letter-spacing="-2">kin<tspan fill="#2a78d6">loop</tspan></text>
+    <text x="76" y="222" font-size="26" fill="#4a5468">one learned controller for a whole family</text>
+    <text x="76" y="256" font-size="26" fill="#4a5468">of BLDC motors, from simulation to silicon</text>
+    <g font-size="17" font-weight="600">
+      <rect x="74" y="288" width="212" height="36" rx="18" fill="#e3eefb"/><text x="180" y="312" text-anchor="middle" fill="#1d5fae">RL cascade · TD3+DDPG</text>
+      <rect x="296" y="288" width="150" height="36" rx="18" fill="#dff5ec"/><text x="371" y="312" text-anchor="middle" fill="#0f7a54">GPU sim · Warp</text>
+      <rect x="456" y="288" width="118" height="36" rx="18" fill="#fdeee6"/><text x="515" y="312" text-anchor="middle" fill="#b8481c">ESP32 FOC</text>
+      <rect x="584" y="288" width="122" height="36" rx="18" fill="#ecebfb"/><text x="645" y="312" text-anchor="middle" fill="#4a3cb0">FPGA FP32</text>
+    </g>
+    <text x="76" y="374" font-size="16" fill="#7a8396">Final-year project · Electrical Engineering, VJTI Mumbai · 2026</text>
+    <!-- links from the one shared policy to each family member -->
+    <g fill="none" stroke="#6250d6" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 9" opacity=".55">
+      <path d="M990 168 C 960 215, 860 215, 842 268"/>
+      <path d="M996 170 C 990 210, 960 220, 952 252"/>
+      <path d="M1006 170 C 1012 210, 1050 220, 1062 262"/>
+      <path d="M1012 168 C 1050 215, 1160 205, 1178 242"/>
+    </g>
+    <!-- shared policy chip -->
+    <g>
+      <g fill="#b9b1f0">
+        <rect x="930" y="88" width="14" height="8" rx="3"/><rect x="930" y="108" width="14" height="8" rx="3"/><rect x="930" y="128" width="14" height="8" rx="3"/>
+        <rect x="1058" y="88" width="14" height="8" rx="3"/><rect x="1058" y="108" width="14" height="8" rx="3"/><rect x="1058" y="128" width="14" height="8" rx="3"/>
+      </g>
+      <rect x="940" y="66" width="122" height="104" rx="28" fill="#6250d6"/>
+      <ellipse cx="972" cy="128" rx="7" ry="4" fill="#ff8fa3" opacity=".7"/><ellipse cx="1030" cy="128" rx="7" ry="4" fill="#ff8fa3" opacity=".7"/>
+      <circle cx="984" cy="114" r="5.4" fill="#fff"/><circle cx="1018" cy="114" r="5.4" fill="#fff"/>
+      <circle cx="985" cy="115" r="2.6" fill="#1f2a44"/><circle cx="1019" cy="115" r="2.6" fill="#1f2a44"/>
+      <path d="M992 130 Q1001 138 1010 130" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+      <text x="1001" y="52" text-anchor="middle" font-size="16" font-weight="700" fill="#6250d6">one policy</text>
+    </g>
+    <!-- the family -->
+    <use href="#motor" xlink:href="#motor" x="790" y="262" width="96" height="80" color="#eb6834"/>
+    <use href="#motor" xlink:href="#motor" x="895" y="244" width="120" height="100" color="#1baf7a"/>
+    <use href="#motor" xlink:href="#motor" x="1015" y="256" width="106" height="88" color="#2a78d6"/>
+    <use href="#motor" xlink:href="#motor" x="1118" y="232" width="134" height="112" color="#e87ba4"/>
+    <g font-size="15" font-weight="600" fill="#4a5468" text-anchor="middle">
+      <text x="833" y="368">R ×0.8</text><text x="950" y="368">L ×1.35</text><text x="1063" y="368">Kₑ ×0.85</text><text x="1177" y="368">J ×2.0</text>
+    </g>
+    <text x="1010" y="398" text-anchor="middle" font-size="13" fill="#9aa1b0">illustrative members of the motor family</text>
+    <use href="#spark" xlink:href="#spark" x="1086" y="56" width="20" height="20" color="#eda100"/>
+    <use href="#spark" xlink:href="#spark" x="904" y="140" width="13" height="13" color="#eda100"/>
+    <use href="#spark" xlink:href="#spark" x="1196" y="150" width="16" height="16" color="#e87ba4"/>
+    <use href="#spark" xlink:href="#spark" x="742" y="100" width="12" height="12" color="#1baf7a"/>
+  </g>
+</svg>

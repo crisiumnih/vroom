@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1100 486" width="1100" height="486" role="img" aria-labelledby="t d">
+  <title id="t">The motor family</title>
+  <desc id="d">Four parameter ranges relative to the reference motor: resistance 0.8 to 1.5, inductance 0.65 to 1.35, back-EMF constant 0.85 to 1.15, rotor inertia 0.5 to 2.0. Frozen populations: 64 training, 16 validation, 16 boundary, 32 final test motors.</desc>
+  <defs>
+    <symbol id="motor" viewBox="0 0 120 100">
+      <ellipse cx="54" cy="94" rx="44" ry="5" fill="#1f2a44" opacity=".08"/>
+      <g fill="none" stroke-width="2.6" stroke-linecap="round"><path d="M92 76 q10 2 16 10" stroke="#e34948"/><path d="M90 80 q9 3 13 11" stroke="#eda100"/><path d="M87 83 q7 4 9 11" stroke="#1f2a44"/></g>
+      <rect x="10" y="30" width="88" height="54" rx="8" fill="currentColor"/>
+      <ellipse cx="54" cy="84" rx="44" ry="10" fill="currentColor"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="currentColor"/>
+      <rect x="10" y="38" width="88" height="5" fill="#1f2a44" opacity=".12"/>
+      <rect x="10" y="74" width="88" height="4" fill="#1f2a44" opacity=".10"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="#fff" opacity=".38"/>
+      <g fill="#1f2a44" opacity=".25"><circle cx="34" cy="30" r="1.8"/><circle cx="74" cy="30" r="1.8"/><circle cx="54" cy="37" r="1.8"/></g>
+      <rect x="49" y="13" width="10" height="16" rx="4" fill="#c9ced8"/>
+      <ellipse cx="54" cy="29" rx="10" ry="3.6" fill="#fff" opacity=".9"/>
+      <ellipse cx="33" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <ellipse cx="75" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <circle cx="43" cy="55" r="4.4" fill="#1f2a44"/><circle cx="65" cy="55" r="4.4" fill="#1f2a44"/>
+      <circle cx="44.4" cy="53.6" r="1.4" fill="#fff"/><circle cx="66.4" cy="53.6" r="1.4" fill="#fff"/>
+      <path d="M47 65 Q54 71 61 65" fill="none" stroke="#1f2a44" stroke-width="2.6" stroke-linecap="round"/>
+    </symbol>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 Z" fill="#1f2a44"/></marker>
+    
+  </defs>
+  <rect x="2" y="2" width="1096" height="482" rx="30" fill="#fffaf2" stroke="#f1e6d3" stroke-width="3"/>
+  <g font-family="ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, sans-serif">
+
+    <text x="48" y="58" font-size="26" font-weight="800" fill="#1f2a44">the family</text>
+    <text x="48" y="88" font-size="17" fill="#4a5468">each simulated member mixes all four ratios at once, relative to the reference motor</text>
+    <line x1="500.0" y1="112" x2="500.0" y2="336" stroke="#1f2a44" stroke-width="2" stroke-dasharray="5 6" opacity=".45"/>
+    <text x="500.0" y="106" text-anchor="middle" font-size="14" font-weight="700" fill="#4a5468">reference = 1</text>
+    <text x="64" y="152" font-size="20" font-weight="800" fill="#1f2a44">R</text><text x="104" y="152" font-size="15" fill="#4a5468">resistance</text>
+    <line x1="420.0" y1="146" x2="700.0" y2="146" stroke="#eb6834" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="420.0" cy="146" r="11" fill="#fff" stroke="#eb6834" stroke-width="4"/><circle cx="700.0" cy="146" r="11" fill="#fff" stroke="#eb6834" stroke-width="4"/>
+    <text x="402.0" y="151" text-anchor="end" font-size="15" font-weight="700" fill="#1f2a44">×0.8</text>
+    <text x="718.0" y="151" font-size="15" font-weight="700" fill="#1f2a44">×1.5</text>
+    <text x="64" y="204" font-size="20" font-weight="800" fill="#1f2a44">L</text><text x="104" y="204" font-size="15" fill="#4a5468">inductance</text>
+    <line x1="360.0" y1="198" x2="640.0" y2="198" stroke="#1baf7a" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="360.0" cy="198" r="11" fill="#fff" stroke="#1baf7a" stroke-width="4"/><circle cx="640.0" cy="198" r="11" fill="#fff" stroke="#1baf7a" stroke-width="4"/>
+    <text x="342.0" y="203" text-anchor="end" font-size="15" font-weight="700" fill="#1f2a44">×0.65</text>
+    <text x="658.0" y="203" font-size="15" font-weight="700" fill="#1f2a44">×1.35</text>
+    <text x="64" y="256" font-size="20" font-weight="800" fill="#1f2a44">Kₑ</text><text x="104" y="256" font-size="15" fill="#4a5468">back-EMF constant</text>
+    <line x1="440.0" y1="250" x2="560.0" y2="250" stroke="#6250d6" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="440.0" cy="250" r="11" fill="#fff" stroke="#6250d6" stroke-width="4"/><circle cx="560.0" cy="250" r="11" fill="#fff" stroke="#6250d6" stroke-width="4"/>
+    <text x="422.0" y="255" text-anchor="end" font-size="15" font-weight="700" fill="#1f2a44">×0.85</text>
+    <text x="578.0" y="255" font-size="15" font-weight="700" fill="#1f2a44">×1.15</text>
+    <text x="64" y="308" font-size="20" font-weight="800" fill="#1f2a44">J</text><text x="104" y="308" font-size="15" fill="#4a5468">rotor inertia</text>
+    <line x1="300.0" y1="302" x2="900.0" y2="302" stroke="#2a78d6" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="300.0" cy="302" r="11" fill="#fff" stroke="#2a78d6" stroke-width="4"/><circle cx="900.0" cy="302" r="11" fill="#fff" stroke="#2a78d6" stroke-width="4"/>
+    <text x="282.0" y="307" text-anchor="end" font-size="15" font-weight="700" fill="#1f2a44">×0.5</text>
+    <text x="918.0" y="307" font-size="15" font-weight="700" fill="#1f2a44">×2.0</text>
+    <line x1="260.0" y1="352" x2="940.0" y2="352" stroke="#1f2a44" stroke-width="1.5" opacity=".35"/>
+    <text x="300.0" y="374" text-anchor="middle" font-size="14" fill="#7a8396">0.5</text>
+    <text x="500.0" y="374" text-anchor="middle" font-size="14" fill="#7a8396">1</text>
+    <text x="700.0" y="374" text-anchor="middle" font-size="14" fill="#7a8396">1.5</text>
+    <text x="900.0" y="374" text-anchor="middle" font-size="14" fill="#7a8396">2</text>
+    <text x="600.0" y="398" text-anchor="middle" font-size="14" fill="#7a8396">parameter ÷ reference value</text>
+    <text x="48" y="436" font-size="15" fill="#4a5468">frozen populations: 64 training · 16 validation · 16 boundary corners · 32 final test motors</text>
+    <text x="48" y="458" font-size="13" fill="#7a8396">ranges are experiment choices, not measured manufacturing tolerances · populations/vroom-motor-population-v1.json</text>
+
+  </g>
+</svg>

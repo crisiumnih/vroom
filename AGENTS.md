@@ -1,45 +1,113 @@
-# vroom working conventions
+# kinloop (`vroom`) — working conventions
 
-## Scope
-Simulation only. No hardware integration, export, quantization, Arty flashing
-without a new user instruction. Sim params are assumed, not measured motor specs.
+Instructions for anyone, human or coding agent, changing this repo. Read
+`README.md` first for what the project is; this file says how to work on it.
 
-## Evidence rules
-- Document code alongside implementation: purpose, equations, units, assumptions, limits, repro commands.
-- Distinguish implemented / tested / proposed / measured.
-- Preserve raw traces + machine-readable metrics + readable summaries + figures.
-- Record seeds, configs, versions, source + submodule hashes, completion/failure status.
-- Never silently reset failed episodes, pad missing traces, overwrite result dirs, or tune from consumed final tests.
-- Use identical plant/scenarios/eval for PI/RL comparisons.
+## What this repo is
 
-## Learning constraints
-- Final RL from scratch: no PI demos, imitation pretraining, teacher checkpoints, shadow PI state.
-- PI is evaluation baseline only.
-- Use pinned stable-baselines3; keep adapters local.
-- Preserve observation order/scaling, memory/reset semantics, action limits, sample timing across train/eval.
+One learned speed–current cascade for a defined family of BLDC motors:
+- `warp_backend/`, `rl/`, `populations/`: GPU training and the simulation contract.
+- `third_party/gym-electric-motor`: the CPU judge for selection and evaluation (submodule).
+- `hw/focmini/`: ESP32 + SimpleFOCmini testbed firmware.
+- `hw/arty/`: FP32 actor inference on an Arty A7-35T.
 
-## Harness correctness before expensive runs
-- Accepted device implementation: `warp_backend/rollout.py:FastOuterBackend` (`vecenv.py: backend="device"`); `warp_backend/backend.py:WarpOuterBackend` is the unchanged reference for parity. Contract changes must land in both until the reference is retired.
-- Read `plan/plan.md` and `plan/harness-performance.md` before changing the outer loop or rollout backend. Their proposed designs are not implemented contracts or permission to launch training.
-- Resolve the actual runner, imported GEM path, interpreter, packages, and source/submodule/checkpoint hashes. Do not infer implementation from README paths or silently use a different working-tree fallback.
-- Warp trains; GEM judges. Use a shared versioned controller contract for both, including history, memory gain, action transforms, filtering, reward, and resets. Exercise the real validation callback with nondefault settings before a long run.
-- Validate configured plant parameters against kernel parameters. The current Warp kernel has nominal constants; reject unsupported configurations until runtime parameterization is implemented and verified.
-- Test automatic episode resets through `step_wait`, with different scenarios/durations per lane. Explicit `reset()` tests alone do not establish training coverage. Preserve scenario IDs, per-lane RNG state, failure records, and terminal observations.
-- Freeze each lane at its first termination/truncation, including plant and controller memory, while other lanes continue. Check mixed live/done batches. Use SB3's exact `TimeLimit.truncated` key; time limits bootstrap and physical failures do not.
+All three areas (simulation, ESP32, FPGA) are in scope. Quantization,
+retraining for hardware, or a new board are *not*; they need an explicit
+decision from the team first.
 
-## Performance engineering
-- Profile before optimizing. Separate warmed rollout, learner updates, GEM validation, serialization, and startup/JIT time. Use synchronized wall timing for throughput, CUDA events for stream timing, and CPU/GPU profilers for attribution; profiler overhead is not production throughput.
-- Report vector steps, total environment transitions, and executed inner physics steps separately. SB3 `num_timesteps` already counts all environments: do not divide by `n_envs` twice. Sum per-transition physics-step deltas, not cumulative episode counters.
-- Compare performance at fixed total transitions and declared updates per transition. Changing `n_envs`, `train_freq`, `gradient_steps`, warm-up, validation cadence, noise, precision, or sample timing can change the learning experiment. Record critic and delayed actor updates separately.
-- Target batched, preallocated controller state on the GPU. Avoid adding per-environment Python loops, `np.roll`, fresh device buffers, `.cpu()`, `.numpy()`, `.item()`, or device-wide synchronization inside the ten inner steps. Keep required host transfers at the SB3 outer-step boundary; diagnostic slow paths must be explicit.
-- Reuse Warp/PyTorch views with compatible dtype, layout, device, and lifetime. Use a shared CUDA stream or explicit dependency events; removing synchronization without establishing ordering is incorrect. Copy mutable observations into replay/evaluation snapshots before their buffers are reused.
-- Preserve all ten closed-loop inner actor/physics decisions and per-physics-step trip checks. Holding voltage for 1 ms, skipping inner inference, or checking limits only at the end is a controller change, not an equivalent speedup.
-- Capture CUDA graphs only after warm-up, with stable shapes/addresses, device-side masks, and correct reset/terminal-state handling. Benchmark capture/compile startup separately. Keep FP64 physics and FP32 policy inference unless a separately declared precision study passes trajectory, trip, and gate checks; do not silently enable AMP/TF32/fast math.
-- Start GPU benchmarks with one worker and controlled CPU thread counts; measure contention before increasing workers. More processes, environments, or a larger GPU are not automatically faster. Retain pinned dependencies and SB3; require a measured bottleneck and a separate migration comparison before adopting another learner or simulator stack.
-- Use immutable policy snapshots and bounded workers for parallel GEM evaluation. Preserve every scheduled validation, failure, and selection barrier. Do not reduce evaluation coverage, trace evidence, or training updates to claim a speedup.
-- Before an authorized long run, complete the relevant bounded correctness/parity and performance checks, estimate total transitions/updates/physics work and wall time, and freeze configuration. Record failed checks; do not repeatedly launch long training to debug adapters. Keep raw profiling evidence under ignored `results/`, with source/config hashes and reproduction commands.
+## Claims and evidence
 
-## Repo hygiene
-- `main` holds decided architecture only. No understanding/logging dumps, no bulk results, no PDFs.
-- `third_party/gym-electric-motor` is a submodule; pin SHA per experiment, never edit in place.
-- UI shows clean details + key graphs only.
+Every statement in code comments, docs, figures or PRs must say which of these it is:
+**implemented**, **tested in simulation**, **measured on hardware**, or **proposed**.
+- Simulation parameters are assumed, not measured motor specifications, until
+  the identification results say otherwise. Simulation results are never hardware results.
+- Numerical agreement on the FPGA is not closed-loop control; a 100 MHz clock is
+  not a control-period measurement. ESP32 bring-up is not policy deployment.
+- Cite primary sources for external methods (link them, never invent page or
+  equation numbers). Label our own design choices as ours.
+- Keep README status table, docs and figures in sync with the code. If they
+  disagree, write the discrepancy down rather than picking one silently.
+
+## Experiments
+
+- Preserve raw traces, machine-readable metrics, readable summaries and figures.
+  Raw evidence lives in ignored `results/`; never commit it.
+- Record seeds, full config, package versions, source and submodule hashes, and
+  completion/failure status for every run.
+- Define metric windows, units, thresholds and missing-value rules before
+  looking at results.
+- Never silently reset failed episodes, pad missing traces, drop failed cases,
+  or overwrite an existing result directory.
+- PI vs RL comparisons use the identical plant, scenarios, observations, action
+  limits and evaluation code. Tune on development cases only; final test cases
+  and populations are used once and never fed back into tuning.
+- Different seeds of a deterministic run are repeatability checks, not
+  statistical robustness.
+
+## Learning rules
+
+- Final controllers learn from scratch by interacting with simulated motors:
+  no PI demonstrations, imitation, teacher checkpoints or shadow PI state.
+  PI is an evaluation baseline only.
+- Train the current policy first and freeze it while the speed policy learns.
+- Use pinned Stable-Baselines3 (`requirements.txt`); keep adapters local.
+- Keep observation order and scaling, memory/reset semantics, action scaling
+  and sample timing identical across training, evaluation and hardware. Version
+  any change to that contract.
+
+## Simulation harness
+
+- **Warp trains, GEM judges.** Training, validation and evaluation share one
+  versioned controller contract (history, memory gain, action transforms,
+  filtering, reward, resets).
+- The accepted device rollout is `warp_backend/rollout.py:FastOuterBackend`
+  (`vecenv.py`, `backend="device"`). `warp_backend/backend.py:WarpOuterBackend` is
+  the unchanged parity reference; contract changes land in both until it is retired.
+- Validate per-lane plant parameters before use. Test automatic resets through
+  `step_wait` with mixed live/done lanes; freeze each lane at its first
+  termination. Use SB3's `TimeLimit.truncated`: time limits bootstrap, physical
+  failures do not.
+- Keep all ten inner decisions and per-physics-step trip checks per outer step.
+  Holding voltage for 1 ms or checking limits only at the end changes the controller.
+- Keep FP64 physics and FP32 policy inference; no silent AMP/TF32/fast math.
+- Before any long run: pass the relevant parity and correctness tests, estimate
+  transitions/updates/wall time, freeze the config. Do not debug by repeatedly
+  launching long training.
+
+## Performance work
+
+- Profile before optimizing. Report warmed rollout, learner updates, GEM
+  validation and startup/JIT time separately, using synchronized timing.
+- Count vector steps, environment transitions and inner physics steps
+  separately; SB3 `num_timesteps` already includes all environments.
+- Compare at fixed total transitions and update ratio. Changing `n_envs`,
+  `train_freq`, `gradient_steps`, noise, precision or validation cadence changes
+  the experiment, not just the speed.
+- No per-environment Python loops, fresh device buffers or host syncs
+  (`.cpu()`, `.item()`, `.numpy()`) inside the inner steps; host transfers belong
+  at the SB3 outer-step boundary.
+- Never cut evaluation coverage, trace evidence or training updates to report a speedup.
+
+## Hardware
+
+- **ESP32 (`hw/focmini/`).** Bench supply with a current limit, motor clamped in
+  the fixture, firmware safeguards enabled. Spin commands need explicit
+  confirmation (see `run_motor.sh`). Run `hw/focmini/tests/` after changing
+  control or parsing code. Wiring changes go into the README diagram.
+- **FPGA (`hw/arty/`).** Actors stay binary32 with the trained weights; never
+  alter parameters to make a check pass. Acceptance is absolute error ≤ 1e-5
+  against the software reference. Report timing only from routed results on the
+  target part, and keep failed probes.
+- Inputs to either board must use the same observation contract as simulation.
+
+## Repo hygiene and PRs
+
+- Work on a branch and open a PR. Keep `main` to decided architecture.
+  Before review: tests for the area touched pass and `git diff --check` is clean.
+- Never commit `results/`, model zips, `*.pkl`, replay buffers, logs, PDFs or
+  bulk data. Small README figures go in `docs/figs/` (prefer SVG).
+- `third_party/gym-electric-motor` is a submodule; pin its SHA per experiment
+  and never edit it in place. `third_party/hardfloat` is vendored; keep its licence.
+- `rl_legacy_cpu/` is superseded reference code; do not extend it.
+- Document substantive code alongside it: purpose, equations, symbols with SI
+  units, assumptions, configuration, limitations and reproduction commands.
