@@ -1,0 +1,10 @@
+`verilator_config
+// Only the pinned, unmodified upstream source is waived. Wrapper warnings are
+// fatal. These legacy parameterized expressions intentionally truncate/extend.
+lint_off -rule WIDTHTRUNC -file "*hardfloat/source/*"
+lint_off -rule WIDTHEXPAND -file "*hardfloat/source/*"
+lint_off -rule GENUNNAMED -file "*hardfloat/source/*"
+lint_off -rule VARHIDDEN -file "*hardfloat/source/*"
+lint_off -rule UNUSEDSIGNAL -file "*hardfloat/source/*"
+lint_off -rule UNUSEDPARAM -file "*hardfloat/source/*"
+lint_off -rule DECLFILENAME -file "*hardfloat/source/*"
