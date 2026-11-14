@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1100 370" width="1100" height="370" role="img" aria-labelledby="t d">
+  <title id="t">The kinloop cascade</title>
+  <desc id="d">Speed reference enters a speed policy (TD3, every 1 ms) that requests q-axis current; a current policy (DDPG, every 100 microseconds, ten steps per speed step, frozen during speed learning) outputs d and q voltages to a BLDC motor; currents, angle and speed feed back to both policies.</desc>
+  <defs>
+    <symbol id="motor" viewBox="0 0 120 100">
+      <ellipse cx="54" cy="94" rx="44" ry="5" fill="#1f2a44" opacity=".08"/>
+      <g fill="none" stroke-width="2.6" stroke-linecap="round"><path d="M92 76 q10 2 16 10" stroke="#e34948"/><path d="M90 80 q9 3 13 11" stroke="#eda100"/><path d="M87 83 q7 4 9 11" stroke="#1f2a44"/></g>
+      <rect x="10" y="30" width="88" height="54" rx="8" fill="currentColor"/>
+      <ellipse cx="54" cy="84" rx="44" ry="10" fill="currentColor"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="currentColor"/>
+      <rect x="10" y="38" width="88" height="5" fill="#1f2a44" opacity=".12"/>
+      <rect x="10" y="74" width="88" height="4" fill="#1f2a44" opacity=".10"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="#fff" opacity=".38"/>
+      <g fill="#1f2a44" opacity=".25"><circle cx="34" cy="30" r="1.8"/><circle cx="74" cy="30" r="1.8"/><circle cx="54" cy="37" r="1.8"/></g>
+      <rect x="49" y="13" width="10" height="16" rx="4" fill="#c9ced8"/>
+      <ellipse cx="54" cy="29" rx="10" ry="3.6" fill="#fff" opacity=".9"/>
+      <ellipse cx="33" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <ellipse cx="75" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <circle cx="43" cy="55" r="4.4" fill="#1f2a44"/><circle cx="65" cy="55" r="4.4" fill="#1f2a44"/>
+      <circle cx="44.4" cy="53.6" r="1.4" fill="#fff"/><circle cx="66.4" cy="53.6" r="1.4" fill="#fff"/>
+      <path d="M47 65 Q54 71 61 65" fill="none" stroke="#1f2a44" stroke-width="2.6" stroke-linecap="round"/>
+    </symbol>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 Z" fill="#1f2a44"/></marker>
+    
+  </defs>
+  <rect x="2" y="2" width="1096" height="366" rx="30" fill="#fffaf2" stroke="#f1e6d3" stroke-width="3"/>
+  <g font-family="ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, sans-serif">
+
+    <text x="48" y="58" font-size="26" font-weight="800" fill="#1f2a44">the cascade</text>
+    <text x="48" y="88" font-size="17" fill="#4a5468">a slow speed policy asks for current; a fast current policy makes it happen</text>
+    <text x="40" y="196" font-size="24" font-weight="700" fill="#1f2a44">ω*</text>
+    <line x1="72" y1="188" x2="112" y2="188" stroke="#1f2a44" stroke-width="3" marker-end="url(#ah)"/>
+    <rect x="118" y="128" width="250" height="120" rx="24" fill="#e3eefb" stroke="#2a78d6" stroke-width="3"/>
+    <text x="243" y="170" text-anchor="middle" font-size="23" font-weight="800" fill="#1f2a44">speed policy</text>
+    <text x="243" y="198" text-anchor="middle" font-size="17" fill="#1d5fae">TD3 · every 1 ms</text>
+    <text x="243" y="226" text-anchor="middle" font-size="15" fill="#4a5468">+ accumulated correction</text>
+    <line x1="370" y1="188" x2="484" y2="188" stroke="#1f2a44" stroke-width="3" marker-end="url(#ah)"/>
+    <text x="427" y="174" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2a44">i<tspan font-size="13" dy="4">q</tspan><tspan dy="-4">*</tspan></text>
+    <text x="427" y="214" text-anchor="middle" font-size="13" fill="#7a8396">i<tspan dy="3" font-size="10">d</tspan><tspan dy="-3">* = 0</tspan></text>
+    <rect x="490" y="128" width="250" height="120" rx="24" fill="#dff5ec" stroke="#1baf7a" stroke-width="3"/>
+    <text x="615" y="170" text-anchor="middle" font-size="23" font-weight="800" fill="#1f2a44">current policy</text>
+    <text x="615" y="198" text-anchor="middle" font-size="17" fill="#0f7a54">DDPG · every 100 µs</text>
+    <text x="615" y="226" text-anchor="middle" font-size="15" fill="#4a5468">frozen while speed learns</text>
+    <rect x="664" y="110" width="104" height="32" rx="16" fill="#fff1cc" stroke="#eda100" stroke-width="2"/>
+    <text x="716" y="132" text-anchor="middle" font-size="15" font-weight="800" fill="#8a5a00">×10 per step</text>
+    <line x1="742" y1="188" x2="858" y2="188" stroke="#1f2a44" stroke-width="3" marker-end="url(#ah)"/>
+    <text x="800" y="174" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2a44">v<tspan font-size="13" dy="4">d</tspan><tspan dy="-4">, v</tspan><tspan font-size="13" dy="4">q</tspan></text>
+    <use href="#motor" xlink:href="#motor" x="866" y="118" width="150" height="125.0" color="#e87ba4"/>
+    <text x="941" y="268" text-anchor="middle" font-size="18" font-weight="800" fill="#1f2a44">BLDC motor</text>
+    <text x="941" y="290" text-anchor="middle" font-size="14" fill="#7a8396">simulated (GEM · Warp) or real</text>
+    <g fill="none" stroke="#1f2a44" stroke-width="2.5" opacity=".55" stroke-dasharray="7 6" stroke-linecap="round">
+      <path d="M1030 205 H1060 V330 H243 V256" marker-end="url(#ah)"/>
+      <path d="M615 330 V256" marker-end="url(#ah)"/>
+    </g>
+    <rect x="628" y="316" width="274" height="28" rx="14" fill="#fffaf2"/>
+    <text x="765" y="336" text-anchor="middle" font-size="15" fill="#4a5468">feedback: currents · angle · speed</text>
+
+  </g>
+</svg>

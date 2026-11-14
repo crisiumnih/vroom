@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1100 410" width="1100" height="410" role="img" aria-labelledby="t d">
+  <title id="t">From model to silicon</title>
+  <desc id="d">Four stages: 1 identify the motor (tested on synthetic data), 2 train across the motor family on GPU simulation (simulation results), 3 ESP32 testbed (firmware bring-up; policy deployment not yet in this repo), 4 FPGA inference on Arty A7-35T (26 of 26 inference jobs match software). Measured ESP32 response feeds back to identification.</desc>
+  <defs>
+    <symbol id="motor" viewBox="0 0 120 100">
+      <ellipse cx="54" cy="94" rx="44" ry="5" fill="#1f2a44" opacity=".08"/>
+      <g fill="none" stroke-width="2.6" stroke-linecap="round"><path d="M92 76 q10 2 16 10" stroke="#e34948"/><path d="M90 80 q9 3 13 11" stroke="#eda100"/><path d="M87 83 q7 4 9 11" stroke="#1f2a44"/></g>
+      <rect x="10" y="30" width="88" height="54" rx="8" fill="currentColor"/>
+      <ellipse cx="54" cy="84" rx="44" ry="10" fill="currentColor"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="currentColor"/>
+      <rect x="10" y="38" width="88" height="5" fill="#1f2a44" opacity=".12"/>
+      <rect x="10" y="74" width="88" height="4" fill="#1f2a44" opacity=".10"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="#fff" opacity=".38"/>
+      <g fill="#1f2a44" opacity=".25"><circle cx="34" cy="30" r="1.8"/><circle cx="74" cy="30" r="1.8"/><circle cx="54" cy="37" r="1.8"/></g>
+      <rect x="49" y="13" width="10" height="16" rx="4" fill="#c9ced8"/>
+      <ellipse cx="54" cy="29" rx="10" ry="3.6" fill="#fff" opacity=".9"/>
+      <ellipse cx="33" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <ellipse cx="75" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <circle cx="43" cy="55" r="4.4" fill="#1f2a44"/><circle cx="65" cy="55" r="4.4" fill="#1f2a44"/>
+      <circle cx="44.4" cy="53.6" r="1.4" fill="#fff"/><circle cx="66.4" cy="53.6" r="1.4" fill="#fff"/>
+      <path d="M47 65 Q54 71 61 65" fill="none" stroke="#1f2a44" stroke-width="2.6" stroke-linecap="round"/>
+    </symbol>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 Z" fill="#1f2a44"/></marker>
+    
+  </defs>
+  <rect x="2" y="2" width="1096" height="406" rx="30" fill="#fffaf2" stroke="#f1e6d3" stroke-width="3"/>
+  <g font-family="ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, sans-serif">
+
+    <text x="48" y="58" font-size="26" font-weight="800" fill="#1f2a44">from model to silicon</text>
+    <text x="48" y="88" font-size="17" fill="#4a5468">the same control law moves through four stages; pills show where each one stands today</text>
+    <rect x="40" y="112" width="232" height="226" rx="24" fill="#ffffff" stroke="#1baf7a" stroke-width="3"/>
+    <circle cx="70" cy="140" r="15" fill="#1baf7a"/><text x="70" y="146" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">1</text>
+    <g transform="translate(156,170)"><path d="M-30 6 q8 -22 16 0 t16 0 t16 0" fill="none" stroke="#1baf7a" stroke-width="4" stroke-linecap="round"/><circle cx="14" cy="-2" r="13" fill="none" stroke="#1f2a44" stroke-width="4"/><line x1="23" y1="7" x2="33" y2="17" stroke="#1f2a44" stroke-width="5" stroke-linecap="round"/></g>
+    <text x="156" y="226" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">identify the motor</text>
+    <text x="156" y="252" text-anchor="middle" font-size="15" fill="#4a5468">fit R, L, Kₑ and J from</text>
+    <text x="156" y="272" text-anchor="middle" font-size="15" fill="#4a5468">recorded trajectories</text>
+    <rect x="52" y="300" width="208" height="26" rx="13" fill="#dff5ec"/><text x="156" y="318" text-anchor="middle" font-size="14" font-weight="700" fill="#0f7a54">synthetic tests pass</text>
+    <line x1="276" y1="225" x2="302" y2="225" stroke="#1f2a44" stroke-width="3" marker-end="url(#ah)"/>
+    <rect x="305" y="112" width="232" height="226" rx="24" fill="#ffffff" stroke="#2a78d6" stroke-width="3"/>
+    <circle cx="335" cy="140" r="15" fill="#2a78d6"/><text x="335" y="146" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">2</text>
+    <g transform="translate(421,170)"><rect x="-30" y="-18" width="60" height="36" rx="8" fill="#2a78d6"/><g fill="#fff" opacity=".9"><circle cx="-16" cy="-6" r="4"/><circle cx="-4" cy="-6" r="4"/><circle cx="8" cy="-6" r="4"/><circle cx="20" cy="-6" r="4"/><circle cx="-16" cy="7" r="4"/><circle cx="-4" cy="7" r="4"/><circle cx="8" cy="7" r="4"/><circle cx="20" cy="7" r="4"/></g></g>
+    <text x="421" y="226" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">train across the family</text>
+    <text x="421" y="252" text-anchor="middle" font-size="15" fill="#4a5468">TD3 + DDPG on batched</text>
+    <text x="421" y="272" text-anchor="middle" font-size="15" fill="#4a5468">GPU motors (Warp),</text>
+    <text x="421" y="292" text-anchor="middle" font-size="15" fill="#4a5468">judged in GEM</text>
+    <rect x="326" y="300" width="190" height="26" rx="13" fill="#e3eefb"/><text x="421" y="318" text-anchor="middle" font-size="14" font-weight="700" fill="#1d5fae">simulation results</text>
+    <line x1="541" y1="225" x2="567" y2="225" stroke="#1f2a44" stroke-width="3" marker-end="url(#ah)"/>
+    <rect x="570" y="112" width="232" height="226" rx="24" fill="#ffffff" stroke="#eb6834" stroke-width="3"/>
+    <circle cx="600" cy="140" r="15" fill="#eb6834"/><text x="600" y="146" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">3</text>
+    <g transform="translate(686,170)"><rect x="-22" y="-20" width="44" height="40" rx="6" fill="#1f2a44"/><rect x="-14" y="-12" width="28" height="18" rx="3" fill="#eb6834"/><g fill="#c9ced8"><rect x="-28" y="-14" width="6" height="4" rx="1"/><rect x="-28" y="-4" width="6" height="4" rx="1"/><rect x="-28" y="6" width="6" height="4" rx="1"/><rect x="22" y="-14" width="6" height="4" rx="1"/><rect x="22" y="-4" width="6" height="4" rx="1"/><rect x="22" y="6" width="6" height="4" rx="1"/></g></g>
+    <text x="686" y="226" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">ESP32 testbed</text>
+    <text x="686" y="252" text-anchor="middle" font-size="15" fill="#4a5468">SimpleFOCmini driver,</text>
+    <text x="686" y="272" text-anchor="middle" font-size="15" fill="#4a5468">AS5600 angle, ACS724</text>
+    <text x="686" y="292" text-anchor="middle" font-size="15" fill="#4a5468">current sensing</text>
+    <rect x="595" y="300" width="181" height="26" rx="13" fill="#fff1cc"/><text x="686" y="318" text-anchor="middle" font-size="14" font-weight="700" fill="#8a5a00">firmware bring-up</text>
+    <line x1="806" y1="225" x2="832" y2="225" stroke="#1f2a44" stroke-width="3" marker-end="url(#ah)"/>
+    <rect x="835" y="112" width="232" height="226" rx="24" fill="#ffffff" stroke="#6250d6" stroke-width="3"/>
+    <circle cx="865" cy="140" r="15" fill="#6250d6"/><text x="865" y="146" text-anchor="middle" font-size="16" font-weight="800" fill="#fff">4</text>
+    <g transform="translate(951,170)"><rect x="-24" y="-24" width="48" height="48" rx="8" fill="#6250d6"/><rect x="-12" y="-12" width="24" height="24" rx="4" fill="#fff" opacity=".85"/><g stroke="#6250d6" stroke-width="3" stroke-linecap="round"><path d="M-14 -32 v6 M0 -32 v6 M14 -32 v6 M-14 26 v6 M0 26 v6 M14 26 v6 M-32 -14 h6 M-32 0 h6 M-32 14 h6 M26 -14 h6 M26 0 h6 M26 14 h6"/></g></g>
+    <text x="951" y="226" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">FPGA inference</text>
+    <text x="951" y="252" text-anchor="middle" font-size="15" fill="#4a5468">FP32 actors on an</text>
+    <text x="951" y="272" text-anchor="middle" font-size="15" fill="#4a5468">Arty A7-35T at 100 MHz,</text>
+    <text x="951" y="292" text-anchor="middle" font-size="15" fill="#4a5468">no quantization</text>
+    <rect x="856" y="300" width="190" height="26" rx="13" fill="#dff5ec"/><text x="951" y="318" text-anchor="middle" font-size="14" font-weight="700" fill="#0f7a54">26 / 26 jobs match</text>
+    <path d="M686 340 C 686 392, 156 392, 156 344" fill="none" stroke="#1f2a44" stroke-width="2.5" opacity=".55" stroke-dasharray="7 6" stroke-linecap="round" marker-end="url(#ah)"/>
+    <rect x="296" y="368" width="280" height="26" rx="13" fill="#fffaf2"/>
+    <text x="436" y="386" text-anchor="middle" font-size="15" fill="#4a5468">measured response refines the model</text>
+
+  </g>
+</svg>

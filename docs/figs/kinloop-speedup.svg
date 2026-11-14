@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 900 400" width="900" height="400" role="img" aria-labelledby="t d">
+  <title id="t">GPU rollout speedup</title>
+  <desc id="d">Bar chart of rollout speedup versus parallel simulated motors: 8 motors 0.92x, 16 motors 1.21x, 32 motors 1.86x, 64 motors 3.03x, relative to NumPy-managed Warp rollout on an RTX 3060.</desc>
+  <defs>
+    <symbol id="motor" viewBox="0 0 120 100">
+      <ellipse cx="54" cy="94" rx="44" ry="5" fill="#1f2a44" opacity=".08"/>
+      <g fill="none" stroke-width="2.6" stroke-linecap="round"><path d="M92 76 q10 2 16 10" stroke="#e34948"/><path d="M90 80 q9 3 13 11" stroke="#eda100"/><path d="M87 83 q7 4 9 11" stroke="#1f2a44"/></g>
+      <rect x="10" y="30" width="88" height="54" rx="8" fill="currentColor"/>
+      <ellipse cx="54" cy="84" rx="44" ry="10" fill="currentColor"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="currentColor"/>
+      <rect x="10" y="38" width="88" height="5" fill="#1f2a44" opacity=".12"/>
+      <rect x="10" y="74" width="88" height="4" fill="#1f2a44" opacity=".10"/>
+      <ellipse cx="54" cy="30" rx="44" ry="11" fill="#fff" opacity=".38"/>
+      <g fill="#1f2a44" opacity=".25"><circle cx="34" cy="30" r="1.8"/><circle cx="74" cy="30" r="1.8"/><circle cx="54" cy="37" r="1.8"/></g>
+      <rect x="49" y="13" width="10" height="16" rx="4" fill="#c9ced8"/>
+      <ellipse cx="54" cy="29" rx="10" ry="3.6" fill="#fff" opacity=".9"/>
+      <ellipse cx="33" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <ellipse cx="75" cy="64" rx="6" ry="3.4" fill="#ff8fa3" opacity=".65"/>
+      <circle cx="43" cy="55" r="4.4" fill="#1f2a44"/><circle cx="65" cy="55" r="4.4" fill="#1f2a44"/>
+      <circle cx="44.4" cy="53.6" r="1.4" fill="#fff"/><circle cx="66.4" cy="53.6" r="1.4" fill="#fff"/>
+      <path d="M47 65 Q54 71 61 65" fill="none" stroke="#1f2a44" stroke-width="2.6" stroke-linecap="round"/>
+    </symbol>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9 Z" fill="#1f2a44"/></marker>
+    
+  </defs>
+  <rect x="2" y="2" width="896" height="396" rx="30" fill="#fffaf2" stroke="#f1e6d3" stroke-width="3"/>
+  <g font-family="ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, sans-serif">
+
+    <text x="48" y="58" font-size="26" font-weight="800" fill="#1f2a44">GPU rollout speedup</text>
+    <text x="48" y="86" font-size="16" fill="#4a5468">device-managed vs NumPy-managed Warp rollout · RTX 3060 · fixed commands, learner updates excluded</text>
+    <line x1="120" y1="266" x2="860" y2="266" stroke="#1f2a44" stroke-width="1" opacity=".10"/><text x="106" y="271" text-anchor="end" font-size="14" fill="#7a8396">1×</text>
+    <line x1="120" y1="202" x2="860" y2="202" stroke="#1f2a44" stroke-width="1" opacity=".10"/><text x="106" y="207" text-anchor="end" font-size="14" fill="#7a8396">2×</text>
+    <line x1="120" y1="138" x2="860" y2="138" stroke="#1f2a44" stroke-width="1" opacity=".10"/><text x="106" y="143" text-anchor="end" font-size="14" fill="#7a8396">3×</text>
+    <text x="106" y="335" text-anchor="end" font-size="14" fill="#7a8396">0</text>
+    <path d="M167.0 330 V275.1 Q167.0 271.1 171.0 271.1 H259.0 Q263.0 271.1 263.0 275.1 V330 Z" fill="#2a78d6"><title>8 motors: 0.92× (slower than NumPy-managed)</title></path>
+    <text x="215" y="259.1" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">0.92×</text>
+    <text x="215" y="356" text-anchor="middle" font-size="16" font-weight="600" fill="#4a5468">8</text>
+    <path d="M352.0 330 V256.6 Q352.0 252.6 356.0 252.6 H444.0 Q448.0 252.6 448.0 256.6 V330 Z" fill="#2a78d6"><title>16 motors: 1.21× (faster than NumPy-managed)</title></path>
+    <text x="400" y="240.6" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">1.21×</text>
+    <text x="400" y="356" text-anchor="middle" font-size="16" font-weight="600" fill="#4a5468">16</text>
+    <path d="M537.0 330 V215.0 Q537.0 211.0 541.0 211.0 H629.0 Q633.0 211.0 633.0 215.0 V330 Z" fill="#2a78d6"><title>32 motors: 1.86× (faster than NumPy-managed)</title></path>
+    <text x="585" y="199.0" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">1.86×</text>
+    <text x="585" y="356" text-anchor="middle" font-size="16" font-weight="600" fill="#4a5468">32</text>
+    <path d="M722.0 330 V140.1 Q722.0 136.1 726.0 136.1 H814.0 Q818.0 136.1 818.0 140.1 V330 Z" fill="#2a78d6"><title>64 motors: 3.03× (faster than NumPy-managed)</title></path>
+    <text x="770" y="124.1" text-anchor="middle" font-size="19" font-weight="800" fill="#1f2a44">3.03×</text>
+    <text x="770" y="356" text-anchor="middle" font-size="16" font-weight="600" fill="#4a5468">64</text>
+    <line x1="120" y1="330" x2="860" y2="330" stroke="#1f2a44" stroke-width="1.5" opacity=".5"/>
+    <line x1="120" y1="266" x2="860" y2="266" stroke="#1f2a44" stroke-width="2" stroke-dasharray="6 6" opacity=".55"/>
+    <line x1="48" y1="116" x2="84" y2="116" stroke="#1f2a44" stroke-width="2" stroke-dasharray="6 6" opacity=".55"/><text x="92" y="121" font-size="14" fill="#4a5468">NumPy-managed Warp = 1×</text>
+    <text x="490" y="382" text-anchor="middle" font-size="15" fill="#4a5468">parallel simulated motors</text>
+
+  </g>
+</svg>
